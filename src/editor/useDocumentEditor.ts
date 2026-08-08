@@ -511,6 +511,24 @@ export function useDocumentEditor() {
     });
   }, [commit, current]);
 
+  const moveAnnotationInStack = useCallback((id: string, direction: "forward" | "backward") => {
+    if (!current) return;
+    const index = current.annotations.findIndex((item) => item.id === id);
+    if (index < 0) return;
+    const target = direction === "forward"
+      ? Math.min(current.annotations.length - 1, index + 1)
+      : Math.max(0, index - 1);
+    if (target === index) return;
+    const annotations = [...current.annotations];
+    const [annotation] = annotations.splice(index, 1);
+    annotations.splice(target, 0, annotation);
+    commit({
+      bytes: current.bytes,
+      annotations,
+      label: direction === "forward" ? "Bring annotation forward" : "Send annotation backward"
+    });
+  }, [commit, current]);
+
   const updateAnnotation = useCallback((
     id: string,
     updates: Partial<Annotation>,
@@ -553,6 +571,7 @@ export function useDocumentEditor() {
     addAnnotation,
     updateAnnotation,
     removeAnnotation,
+    moveAnnotationInStack,
     flattenForms,
     sanitize,
     optimize,
@@ -560,6 +579,6 @@ export function useDocumentEditor() {
   }), [
     addAnnotation, clear, current, duplicate, duplicatePages, extract, history, historyIndex, load, restore,
     flattenForms, merge, mergeMany, optimize, remove, removePages, removeAnnotation, reorder, reorderPages, rotate, rotatePages,
-    sanitize, savedHistoryIndex, updateAnnotation
+    sanitize, savedHistoryIndex, updateAnnotation, moveAnnotationInStack
   ]);
 }

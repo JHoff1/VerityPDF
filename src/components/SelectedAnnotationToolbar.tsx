@@ -1,14 +1,16 @@
-import { Trash2 } from "lucide-react";
+import { ArrowDownToLine, ArrowUpToLine, Trash2 } from "lucide-react";
 import type { Annotation, TextStyle } from "../editor/useDocumentEditor";
 
 export function SelectedAnnotationToolbar({
   annotation,
   onUpdate,
-  onRemove
+  onRemove,
+  onMoveInStack
 }: {
   annotation: Annotation;
   onUpdate: (id: string, updates: Partial<Annotation>, label?: string) => void;
   onRemove: (id: string) => void;
+  onMoveInStack: (id: string, direction: "forward" | "backward") => void;
 }) {
   return (
     <aside
@@ -189,6 +191,29 @@ export function SelectedAnnotationToolbar({
           Drag the image to move it. Use its lower-right handle to resize it while preserving its aspect ratio.
         </div>
       )}
+
+      <div className="mt-5 border-t border-white/10 pt-4">
+        <span className="mb-2 block text-[11px] font-medium text-zinc-400">Layer order</span>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            aria-label="Bring selected annotation forward"
+            className="flex h-9 items-center justify-center gap-1.5 rounded-md border border-white/10 text-xs font-medium text-zinc-300 transition hover:bg-white/10 hover:text-white"
+            onClick={() => onMoveInStack(annotation.id, "forward")}
+          >
+            <ArrowUpToLine size={14} /> Forward
+          </button>
+          <button
+            type="button"
+            aria-label="Send selected annotation backward"
+            className="flex h-9 items-center justify-center gap-1.5 rounded-md border border-white/10 text-xs font-medium text-zinc-300 transition hover:bg-white/10 hover:text-white"
+            onClick={() => onMoveInStack(annotation.id, "backward")}
+          >
+            <ArrowDownToLine size={14} /> Backward
+          </button>
+        </div>
+        <p className="mt-2 text-[11px] leading-4 text-zinc-500">Controls which overlapping annotation appears on top.</p>
+      </div>
 
       <button
         type="button"

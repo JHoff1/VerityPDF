@@ -35,6 +35,7 @@ export function StatusBar({
   fileSize,
   zoom,
   dirty,
+  protectedViewing,
   activity,
   onCancelActivity,
   onPreviousPage,
@@ -52,6 +53,7 @@ export function StatusBar({
   fileSize: number;
   zoom: number;
   dirty: boolean;
+  protectedViewing: boolean;
   activity: string;
   onCancelActivity?: () => void;
   onPreviousPage: () => void;
@@ -167,6 +169,11 @@ export function StatusBar({
                 <X size={13} />
               </button>
             )}
+          </>
+        ) : protectedViewing ? (
+          <>
+            <CircleAlert size={12} className="text-amber-400" />
+            <span className="text-amber-200">Protected viewing</span>
           </>
         ) : dirty ? (
           <>

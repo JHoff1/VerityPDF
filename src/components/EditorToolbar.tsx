@@ -4,6 +4,7 @@ import {
   FilePlus2,
   Highlighter,
   ImagePlus,
+  Info,
   Minimize2,
   MousePointer2,
   PanelLeft,
@@ -56,6 +57,7 @@ export function EditorToolbar({
   onFlattenForms,
   onOptimize,
   onSanitize,
+  onDocumentInfo,
   onToggleSearch,
   onZoomChange,
   onViewModeChange
@@ -84,6 +86,7 @@ export function EditorToolbar({
   onFlattenForms: Action;
   onOptimize: Action;
   onSanitize: Action;
+  onDocumentInfo: Action;
   onToggleSearch: Action;
   onZoomChange: (zoom: number) => void;
   onViewModeChange: (mode: ViewMode) => void;
@@ -152,6 +155,7 @@ export function EditorToolbar({
         <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-emerald-400/80">Document</span>
         <div className="flex justify-center">
           <ToolbarDropdown label="Document" tooltip="Open document-wide cleanup and export tools" icon={<FileCheck2 size={16} />}>
+            <button data-tooltip="View local file, page, metadata, and encryption details" className={dropdownItem} disabled={!hasDocument} onClick={() => void onDocumentInfo()}><Info size={15} /> Document info</button>
             <button data-tooltip="Make form values permanent page content; fields can no longer be edited" className={dropdownItem} disabled={!documentPrepared} onClick={() => void onFlattenForms()}><FileCheck2 size={15} /> Flatten forms</button>
             <button data-tooltip="Compress PDF structure; images are unchanged, so size may not decrease" className={dropdownItem} disabled={!documentPrepared} onClick={() => void onOptimize()}><Minimize2 size={15} /> Optimize PDF</button>
             <button data-tooltip="Clear basic metadata only; attachments, scripts, layers, and comments may remain" className={dropdownItem} disabled={!documentPrepared} onClick={() => void onSanitize()}><ShieldCheck size={15} /> Sanitize metadata</button>
@@ -161,6 +165,7 @@ export function EditorToolbar({
       <div className="hidden min-w-0 flex-col gap-2 border-r border-white/10 px-2 pb-1 pt-2 min-[1680px]:flex">
         <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-emerald-400/80">Document</span>
         <div className="flex justify-center">
+          <button className={iconButton + " toolbar-tooltip"} disabled={!hasDocument} onClick={() => void onDocumentInfo()} data-tooltip="View local file, page, metadata, and encryption details"><Info size={16} /> Info</button>
           <button className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void onFlattenForms()} data-tooltip="Make form values permanent page content; fields can no longer be edited"><FileCheck2 size={16} /> Flatten Forms</button>
           <button className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void onOptimize()} data-tooltip="Compress PDF structure; images are unchanged, so size may not decrease"><Minimize2 size={16} /> Optimize</button>
           <button className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void onSanitize()} data-tooltip="Clear basic metadata only; attachments, scripts, layers, and comments may remain"><ShieldCheck size={16} /> Sanitize</button>
