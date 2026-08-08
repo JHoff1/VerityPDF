@@ -53,8 +53,13 @@ function Find-InstalledExecutable {
     $entry = Get-VerityInstall
     $candidates = @()
     if ($entry -and $entry.InstallLocation) {
-        $candidates += Join-Path $entry.InstallLocation "VerityPDF.exe"
-        $candidates += Join-Path $entry.InstallLocation "verity-pdf.exe"
+        # Windows Installer may retain the surrounding quotes used in the
+        # registry value. Trim them before treating it as a filesystem path.
+        $installLocation = ([string]$entry.InstallLocation).Trim().Trim('"')
+        if ($installLocation) {
+            $candidates += Join-Path $installLocation "VerityPDF.exe"
+            $candidates += Join-Path $installLocation "verity-pdf.exe"
+        }
     }
     $candidates += "$env:LOCALAPPDATA\VerityPDF\VerityPDF.exe"
     $candidates += "$env:LOCALAPPDATA\VerityPDF\verity-pdf.exe"

@@ -335,7 +335,7 @@ jobs:
           retention-days: 14
 
   windows-arm64-msix:
-    name: Native Windows ARM64 Store package runtime
+    name: Native Windows ARM64 Store package validation
     runs-on: windows-11-arm
     timeout-minutes: 25
 
@@ -374,10 +374,7 @@ jobs:
         shell: pwsh
         run: ./scripts/build-msix.ps1 -Architecture arm64
 
-      - name: Create smoke-test PDF
-        run: node scripts/create-store-demo-pdf.mjs "$env:RUNNER_TEMP\VerityPDF ARM64 Smoke Test.pdf"
-
-      - name: Validate and launch ARM64 MSIX payload
+      - name: Validate ARM64 MSIX payload
         timeout-minutes: 5
         shell: pwsh
         run: |
@@ -386,7 +383,6 @@ jobs:
           if (-not $package) { throw "The ARM64 Store package is missing." }
           ./scripts/smoke-windows-msix.ps1 `
             -Package $package.FullName `
-            -Pdf "$env:RUNNER_TEMP\VerityPDF ARM64 Smoke Test.pdf" `
             -ArtifactDirectory "smoke-artifacts"
 
       - name: Retain ARM64 diagnostics

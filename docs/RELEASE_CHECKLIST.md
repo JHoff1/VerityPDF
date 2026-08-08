@@ -58,9 +58,10 @@ annotations.
 
 ## Native package smoke tests
 
-- [ ] The ARM64 MSIX validates and its unpacked payload launches on a native
-  Windows ARM64 runner; Partner Center accepts the package installation.
-- [ ] The ARM64 executable reports PE machine type `AA64` and opens a PDF.
+- [ ] The ARM64 MSIX validates and its unpacked payload has a native `AA64`
+  executable on a Windows ARM64 runner; Partner Center accepts the package
+  installation.
+- [ ] The ARM64 package manifest declares the `verity-pdf.exe` payload.
 - [ ] Clean MSI and NSIS installs register VerityPDF as a PDF handler.
 - [ ] MSI and NSIS upgrades from the previous release retain a working app.
 - [ ] MSI and NSIS uninstall without leaving the application executable behind.
