@@ -88,10 +88,10 @@ $requiredAssets = @(
 )
 
 $requiredScreenshots = @(
-    "01-document-workspace.png",
-    "02-annotation-tools.png",
-    "03-search-and-offline-ocr.png",
-    "04-about-and-privacy.png"
+    "4k\\01-organize-pages.png",
+    "4k\\02-annotate-pdfs.png",
+    "4k\\03-search-local-ocr.png",
+    "4k\\04-review-export.png"
 )
 
 Add-Type -AssemblyName System.Drawing
@@ -159,10 +159,10 @@ $screenshotResults = foreach ($name in $requiredScreenshots) {
 
     $image = [System.Drawing.Image]::FromFile($path)
     try {
-        if ($image.Width -lt 1366 -or $image.Height -lt 768) {
+        if ($image.Width -ne 3840 -or $image.Height -ne 2160) {
             throw (
-                "{0} is {1}x{2}; desktop Store screenshots must be at " +
-                "least 1366x768." -f $name, $image.Width, $image.Height
+                "{0} is {1}x{2}; desktop Store screenshots must be " +
+                "3840x2160." -f $name, $image.Width, $image.Height
             )
         }
         [PSCustomObject]@{
