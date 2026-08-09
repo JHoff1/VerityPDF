@@ -21,7 +21,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install Node.js
         uses: actions/setup-node@v6
@@ -59,7 +59,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install Node.js
         uses: actions/setup-node@v6
@@ -118,7 +118,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install Linux system dependencies
         if: matrix.os-family == 'linux'
@@ -168,7 +168,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install Linux system dependencies
         run: |
@@ -285,7 +285,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install Node.js
         uses: actions/setup-node@v6
@@ -345,7 +345,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Verify native ARM64 runner
         shell: pwsh
@@ -405,7 +405,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install Node.js
         uses: actions/setup-node@v6
