@@ -4,8 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#16181d" />
     <link rel="icon" type="image/png" href="/app-icon.png" />
     <title>VerityPDF</title>
+    <style>
+      /* Paint before the stylesheet and React bundle load so the native webview
+         never exposes its default white background during startup. */
+      html,
+      body,
+      #root {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        background: #16181d;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
