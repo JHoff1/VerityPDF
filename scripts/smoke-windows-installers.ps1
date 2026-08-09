@@ -70,13 +70,50 @@ function Find-InstalledExecutable {
 }
 
 function Assert-PdfAssociation {
-    $associations = Get-ChildItem Registry::HKEY_CLASSES_ROOT -ErrorAction SilentlyContinue |
-        Where-Object { $_.PSChildName -match 'VerityPDF|verity-pdf' }
-    $pdfOpenCommands = Get-ChildItem "Registry::HKEY_CLASSES_ROOT\.pdf\OpenWithProgids" `
-        -ErrorAction SilentlyContinue
-    if (-not $associations -and -not $pdfOpenCommands) {
-        throw "No VerityPDF PDF file association was registered."
+    # File associations may be registered as values under OpenWithProgids,
+    # rather than child keys. HKCR also merges per-user and machine classes,
+    # so inspect both locations and verify that the resolved open command is
+    # actually VerityPDF instead of merely seeing an unrelated PDF handler.
+    $classRoots = @(
+        "Registry::HKEY_CLASSES_ROOT",
+        "HKCU:\Software\Classes"
+    )
+    foreach ($classRoot in $classRoots) {
+        $extensionPath = Join-Path $classRoot ".pdf"
+        $progIds = @()
+        $extension = Get-ItemProperty -LiteralPath $extensionPath -ErrorAction SilentlyContinue
+        if ($extension -and $extension.PSObject.Properties["(default)"]) {
+            $progIds += [string]$extension."(default)"
+        }
+
+        $openWith = Get-ItemProperty -LiteralPath (Join-Path $extensionPath "OpenWithProgids") `
+            -ErrorAction SilentlyContinue
+        if ($openWith) {
+            $progIds += $openWith.PSObject.Properties |
+                Where-Object { $_.Name -notmatch '^PS' } |
+                ForEach-Object Name
+        }
+
+        foreach ($progId in $progIds | Where-Object { $_ } | Select-Object -Unique) {
+            $command = Get-ItemPropertyValue `
+                -LiteralPath (Join-Path $classRoot "$progId\shell\open\command") `
+                -Name "(default)" -ErrorAction SilentlyContinue
+            if ([string]$command -match '(?i)(VerityPDF|verity-pdf)\.exe') {
+                return
+            }
+        }
+
+        # NSIS may use an application registration directly while installing.
+        foreach ($application in @("VerityPDF.exe", "verity-pdf.exe")) {
+            $command = Get-ItemPropertyValue `
+                -LiteralPath (Join-Path $classRoot "Applications\$application\shell\open\command") `
+                -Name "(default)" -ErrorAction SilentlyContinue
+            if ([string]$command -match '(?i)(VerityPDF|verity-pdf)\.exe') {
+                return
+            }
+        }
     }
+    throw "No VerityPDF PDF file association was registered."
 }
 
 function Test-InstalledApp {

@@ -536,11 +536,23 @@ test("shows local document information and annotation layer controls", async ({
   await expect(properties.getByRole("button", {
     name: "Send selected annotation backward"
   })).toBeVisible();
+  await expect(properties.getByRole("button", {
+    name: "Bring selected annotation to front"
+  })).toBeVisible();
+  await expect(properties.getByRole("button", {
+    name: "Send selected annotation to back"
+  })).toBeVisible();
   await properties.getByRole("button", {
     name: "Bring selected annotation forward"
   }).click();
   await properties.getByRole("button", {
     name: "Send selected annotation backward"
+  }).click();
+  await properties.getByRole("button", {
+    name: "Bring selected annotation to front"
+  }).click();
+  await properties.getByRole("button", {
+    name: "Send selected annotation to back"
   }).click();
   await expect(page.getByText("Layered note", { exact: true })).toBeVisible();
 });

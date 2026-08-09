@@ -1,4 +1,10 @@
-import { ArrowDownToLine, ArrowUpToLine, Trash2 } from "lucide-react";
+import {
+  ArrowDownToLine,
+  ArrowUpToLine,
+  ChevronDown,
+  ChevronUp,
+  Trash2
+} from "lucide-react";
 import type { Annotation, TextStyle } from "../editor/useDocumentEditor";
 
 export function SelectedAnnotationToolbar({
@@ -10,7 +16,10 @@ export function SelectedAnnotationToolbar({
   annotation: Annotation;
   onUpdate: (id: string, updates: Partial<Annotation>, label?: string) => void;
   onRemove: (id: string) => void;
-  onMoveInStack: (id: string, direction: "forward" | "backward") => void;
+  onMoveInStack: (
+    id: string,
+    direction: "forward" | "backward" | "front" | "back"
+  ) => void;
 }) {
   return (
     <aside
@@ -201,7 +210,7 @@ export function SelectedAnnotationToolbar({
             className="flex h-9 items-center justify-center gap-1.5 rounded-md border border-white/10 text-xs font-medium text-zinc-300 transition hover:bg-white/10 hover:text-white"
             onClick={() => onMoveInStack(annotation.id, "forward")}
           >
-            <ArrowUpToLine size={14} /> Forward
+            <ChevronUp size={14} /> Forward
           </button>
           <button
             type="button"
@@ -209,7 +218,23 @@ export function SelectedAnnotationToolbar({
             className="flex h-9 items-center justify-center gap-1.5 rounded-md border border-white/10 text-xs font-medium text-zinc-300 transition hover:bg-white/10 hover:text-white"
             onClick={() => onMoveInStack(annotation.id, "backward")}
           >
-            <ArrowDownToLine size={14} /> Backward
+            <ChevronDown size={14} /> Backward
+          </button>
+          <button
+            type="button"
+            aria-label="Bring selected annotation to front"
+            className="flex h-9 items-center justify-center gap-1.5 rounded-md border border-white/10 text-xs font-medium text-zinc-300 transition hover:bg-white/10 hover:text-white"
+            onClick={() => onMoveInStack(annotation.id, "front")}
+          >
+            <ArrowUpToLine size={14} /> To front
+          </button>
+          <button
+            type="button"
+            aria-label="Send selected annotation to back"
+            className="flex h-9 items-center justify-center gap-1.5 rounded-md border border-white/10 text-xs font-medium text-zinc-300 transition hover:bg-white/10 hover:text-white"
+            onClick={() => onMoveInStack(annotation.id, "back")}
+          >
+            <ArrowDownToLine size={14} /> To back
           </button>
         </div>
         <p className="mt-2 text-[11px] leading-4 text-zinc-500">Controls which overlapping annotation appears on top.</p>

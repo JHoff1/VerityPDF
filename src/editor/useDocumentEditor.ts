@@ -511,13 +511,19 @@ export function useDocumentEditor() {
     });
   }, [commit, current]);
 
-  const moveAnnotationInStack = useCallback((id: string, direction: "forward" | "backward") => {
+  const moveAnnotationInStack = useCallback((
+    id: string,
+    direction: "forward" | "backward" | "front" | "back"
+  ) => {
     if (!current) return;
     const index = current.annotations.findIndex((item) => item.id === id);
     if (index < 0) return;
-    const target = direction === "forward"
-      ? Math.min(current.annotations.length - 1, index + 1)
-      : Math.max(0, index - 1);
+    const target = {
+      forward: Math.min(current.annotations.length - 1, index + 1),
+      backward: Math.max(0, index - 1),
+      front: current.annotations.length - 1,
+      back: 0
+    }[direction];
     if (target === index) return;
     const annotations = [...current.annotations];
     const [annotation] = annotations.splice(index, 1);
@@ -525,7 +531,12 @@ export function useDocumentEditor() {
     commit({
       bytes: current.bytes,
       annotations,
-      label: direction === "forward" ? "Bring annotation forward" : "Send annotation backward"
+      label: {
+        forward: "Bring annotation forward",
+        backward: "Send annotation backward",
+        front: "Bring annotation to front",
+        back: "Send annotation to back"
+      }[direction]
     });
   }, [commit, current]);
 
