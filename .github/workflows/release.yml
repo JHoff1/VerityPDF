@@ -466,7 +466,7 @@ jobs:
           retention-days: 30
 
       - name: Install Microsoft Store Developer CLI
-        uses: microsoft/microsoft-store-apppublisher@v1.1
+        uses: microsoft/microsoft-store-apppublisher@v1.4
 
       - name: Configure Microsoft Store credentials
         shell: pwsh
