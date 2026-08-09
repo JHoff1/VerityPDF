@@ -170,9 +170,12 @@ test("fresh preferences use privacy-conscious save defaults", async ({ page }) =
   await expect(
     page.getByText("No background network requests are made.", { exact: false })
   ).toBeVisible();
+  await page.getByRole("button", { name: "Done" }).click();
+  await page.getByRole("button", { name: "Open About and Support" }).click();
   await expect(
-    page.getByRole("heading", { name: "About VerityPDF" })
+    page.getByRole("dialog", { name: "About & Support" })
   ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "VerityPDF", exact: true })).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Privacy policy" })
   ).toBeVisible();

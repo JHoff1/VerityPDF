@@ -93,7 +93,7 @@ test("embeds text annotations as searchable page content", async ({ page }) => {
 
 test("exports a local privacy-scrubbed diagnostic report", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Preferences" }).click();
+  await page.getByRole("button", { name: "Open About and Support" }).click();
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export diagnostic report" }).click();
   const download = await downloadPromise;
