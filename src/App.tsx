@@ -108,6 +108,7 @@ import {
 } from "./preferences";
 import { StatusBar } from "./components/StatusBar";
 import { ShortcutsDialog } from "./components/ShortcutsDialog";
+import { AboutSupportDialog } from "./components/AboutSupportDialog";
 import {
   BookmarksPanel,
   type BookmarkItem
@@ -283,7 +284,7 @@ export default function App() {
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [preparedPageCount, setPreparedPageCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [activeDialog, setActiveDialog] = useState<"preferences" | "shortcuts" | "merge" | "export-summary" | "save" | "overwrite" | "split" | "split-save" | "print" | "password" | "unsaved-close" | "recovery" | "document-info" | null>(null);
+  const [activeDialog, setActiveDialog] = useState<"preferences" | "about-support" | "shortcuts" | "merge" | "export-summary" | "save" | "overwrite" | "split" | "split-save" | "print" | "password" | "unsaved-close" | "recovery" | "document-info" | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [saveForceAs, setSaveForceAs] = useState(false);
@@ -2417,6 +2418,11 @@ export default function App() {
           recoverySnapshots={recoverySnapshots}
           onRestoreRecovery={restoreRecoveryRevision}
           onDeleteRecovery={removeRecoveryRevision}
+          onClose={() => setActiveDialog(null)}
+        />
+      )}
+      {activeDialog === "about-support" && (
+        <AboutSupportDialog
           onReportIssue={reportIssue}
           onExportDiagnostics={exportDiagnostics}
           onOpenPrivacyPolicy={() => openExternalProjectPage(
@@ -3010,6 +3016,7 @@ export default function App() {
             "The VerityPDF releases page could not be opened."
           );
         }}
+        onOpenAbout={() => setActiveDialog("about-support")}
       />
     </div>
   );

@@ -1,5 +1,6 @@
 import {
   CircleAlert,
+  CircleHelp,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -43,7 +44,8 @@ export function StatusBar({
   updateStatus,
   latestVersion,
   onCheckForUpdates,
-  onOpenLatestRelease
+  onOpenLatestRelease,
+  onOpenAbout
 }: {
   currentPage: number;
   pageCount: number;
@@ -62,6 +64,7 @@ export function StatusBar({
   latestVersion: string | null;
   onCheckForUpdates: () => void;
   onOpenLatestRelease: () => void;
+  onOpenAbout: () => void;
 }) {
   const dimensions = width && height
     ? `${Math.round(width)} × ${Math.round(height)} pt`
@@ -219,6 +222,16 @@ export function StatusBar({
           </span>
           <span className="text-[10px]">v{version}</span>
         </div>
+        <button
+          type="button"
+          aria-label="Open About and Support"
+          className="toolbar-tooltip ml-1 flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 transition hover:bg-white/10 hover:text-zinc-200"
+          data-tooltip="About and support"
+          data-tooltip-align="end"
+          onClick={onOpenAbout}
+        >
+          <CircleHelp size={14} />
+        </button>
       </div>
     </footer>
   );
