@@ -138,6 +138,10 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          # Cargo registries are safe to reuse across runners, but compiled
+          # targets can become incompatible when the runner image or Rust
+          # toolchain changes. Native checks prioritize dependable validation.
+          cache-targets: false
 
       - name: Lint and check native backend
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --locked -- -D warnings
@@ -298,10 +302,6 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-          # Cargo registries are safe to reuse across runners, but compiled
-          # targets can become incompatible when the runner image or Rust
-          # toolchain changes. Native checks prioritize dependable validation.
-          cache-targets: false
 
       - name: Install frontend dependencies
         run: npm ci
