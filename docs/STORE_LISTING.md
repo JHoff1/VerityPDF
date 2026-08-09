@@ -69,13 +69,14 @@ publicly available on GitHub.
 PDF editor, PDF reader, annotate PDF, merge PDF, split PDF, offline OCR,
 redact PDF
 
-## What's new in version 0.1.11
+## What's new in version 0.1.20
 
-- Added local crash recovery and safer document-session handling.
-- Improved large-document rendering, page caching, and loading feedback.
-- Added native printing, page ranges, and release checksums.
-- Expanded annotation editing, page selection, bookmarks, and merge workflows.
-- Added Microsoft Store packaging and privacy documentation.
+- New Document Info panel with page count, page size, file size, metadata, and
+  encryption details.
+- Better annotation layering: move annotations forward or backward, or send
+  them directly to the front or back.
+- Improved reliability and accessibility across Windows, macOS, and Linux
+  builds.
 
 ## Store logo mapping
 
@@ -96,20 +97,20 @@ the supplied files follow the exact pixel dimensions.
 ## Screenshot plan
 
 Microsoft requires at least one screenshot and recommends at least four for
-each supported device type. Upload the desktop screenshots from
-`src-tauri/store/listing-assets/screenshots/` in this order:
+each supported device type. Upload the 4K desktop screenshots from
+`src-tauri/store/listing-assets/screenshots/4k/` in this order:
 
-1. Document workspace and page navigation
-2. Annotation and editing tools
-3. Search with local OCR
-4. About, privacy, and local-data controls
+1. Page organization and multi-page selection
+2. Text annotation editing
+3. Local search and OCR
+4. Export review
 
 | Order | Screenshot file |
 | --- | --- |
-| 1 | `01-document-workspace.png` |
-| 2 | `02-annotation-tools.png` |
-| 3 | `03-search-and-offline-ocr.png` |
-| 4 | `04-about-and-privacy.png` |
+| 1 | `4k/01-organize-pages.png` |
+| 2 | `4k/02-annotate-pdfs.png` |
+| 3 | `4k/03-search-local-ocr.png` |
+| 4 | `4k/04-review-export.png` |
 
 Use screenshots that contain only demonstration content. Do not upload real
 documents, names, addresses, account details, or other personal information.

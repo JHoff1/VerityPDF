@@ -86,11 +86,13 @@ import {
 } from "./components/PreferencesDialog";
 import {
   OverwriteDialog,
+  DocumentInfoDialog,
   PasswordDialog,
   RecoveryDialog,
   SaveNameDialog,
   SplitRangeDialog,
-  UnsavedCloseDialog
+  UnsavedCloseDialog,
+  type DocumentInfo
 } from "./components/DocumentDialogs";
 import type {
   SearchMatch,
@@ -106,6 +108,7 @@ import {
 } from "./preferences";
 import { StatusBar } from "./components/StatusBar";
 import { ShortcutsDialog } from "./components/ShortcutsDialog";
+import { AboutSupportDialog } from "./components/AboutSupportDialog";
 import {
   BookmarksPanel,
   type BookmarkItem
@@ -121,6 +124,7 @@ import {
   type UpdateCheckStatus
 } from "./lib/updateCheck";
 import { version as APP_VERSION } from "../package.json";
+import { createDiagnosticReport } from "./diagnostics";
 
 // Keep the pre-rebrand keys to preserve window and session state on upgrade.
 const WINDOW_BOUNDS_KEY = "sovereignpdf.window-bounds.v1";
@@ -149,6 +153,12 @@ type StoredSession = {
 
 function baseName(path: string) {
   return path.split(/[\\/]/).pop() ?? path;
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function errorMessage(cause: unknown, fallback: string) {
@@ -274,7 +284,7 @@ export default function App() {
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [preparedPageCount, setPreparedPageCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [activeDialog, setActiveDialog] = useState<"preferences" | "shortcuts" | "merge" | "export-summary" | "save" | "overwrite" | "split" | "split-save" | "print" | "password" | "unsaved-close" | "recovery" | null>(null);
+  const [activeDialog, setActiveDialog] = useState<"preferences" | "about-support" | "shortcuts" | "merge" | "export-summary" | "save" | "overwrite" | "split" | "split-save" | "print" | "password" | "unsaved-close" | "recovery" | "document-info" | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [saveForceAs, setSaveForceAs] = useState(false);
@@ -291,6 +301,7 @@ export default function App() {
   const [passwordValue, setPasswordValue] = useState("");
   const [passwordIncorrect, setPasswordIncorrect] = useState(false);
   const [passwordProtected, setPasswordProtected] = useState(false);
+  const [documentInfo, setDocumentInfo] = useState<DocumentInfo | null>(null);
   const [formsFlattened, setFormsFlattened] = useState(false);
   const [metadataSanitized, setMetadataSanitized] = useState(false);
   const [pendingRecovery, setPendingRecovery] = useState<RecoverySnapshot | null>(null);
@@ -325,6 +336,43 @@ export default function App() {
       GITHUB_ISSUES_URL,
       "The GitHub issue page could not be opened."
     );
+
+  const exportDiagnostics = async () => {
+    const report = createDiagnosticReport({
+      version: APP_VERSION,
+      platform: window.navigator.platform,
+      desktop: isTauri(),
+      pageCount: pdfDocument?.numPages ?? 0,
+      annotationCount: editor.annotations.length,
+      dirty: editor.isDirty,
+      theme: preferences.theme,
+      viewMode,
+      flattenAnnotations: preferences.flattenAnnotations,
+      automaticBackups: preferences.automaticBackups,
+      restoreSession: preferences.restoreSession,
+      lastError: error
+    });
+    try {
+      if (isTauri()) {
+        const destination = await save({
+          defaultPath: "VerityPDF-diagnostics.txt",
+          filters: [{ name: "Text report", extensions: ["txt"] }]
+        });
+        if (!destination) return;
+        await writeFile(destination, new TextEncoder().encode(report));
+      } else {
+        const url = URL.createObjectURL(new Blob([report], { type: "text/plain" }));
+        const anchor = window.document.createElement("a");
+        anchor.href = url;
+        anchor.download = "VerityPDF-diagnostics.txt";
+        anchor.click();
+        URL.revokeObjectURL(url);
+      }
+      setPreferenceStatus("Privacy-scrubbed diagnostic report saved locally.");
+    } catch (cause) {
+      setError(errorMessage(cause, "The diagnostic report could not be saved."));
+    }
+  };
 
   const checkForUpdates = async () => {
     if (updateStatus === "checking") return;
@@ -784,11 +832,13 @@ export default function App() {
     setPreparedPageCount(0);
     setError(null);
     let nextDocument: PDFDocumentProxy | null = null;
+    let openedWithPassword = false;
     try {
       const loadingTask = getDocument({ data: cloneForPdfJs(data) });
       passwordLoadingTask.current = loadingTask;
       loadingTask.onPassword = (updatePassword: (password: string) => void, reason: number) => {
         if (generation !== renderGeneration.current) return;
+        openedWithPassword = true;
         passwordUpdater.current = updatePassword;
         setPasswordProtected(true);
         setPasswordIncorrect(reason === PasswordResponses.INCORRECT_PASSWORD);
@@ -818,6 +868,7 @@ export default function App() {
         previous?.destroy();
         return openedDocument;
       });
+      setPasswordProtected(openedWithPassword);
       setPages([firstPage]);
       setPreparedPageCount(1);
       setLoadingProgress(openedDocument.numPages === 1 ? 1 : 0.25);
@@ -1898,6 +1949,33 @@ export default function App() {
     setMetadataSanitized(true);
   }, [editor]);
 
+  const showDocumentInfo = useCallback(async () => {
+    if (!pdfDocument || !editor.bytes) return;
+    try {
+      const metadata = await pdfDocument.getMetadata();
+      const details = metadata.info as Record<string, unknown>;
+      const firstPage = pages[0] ?? await pdfDocument.getPage(1);
+      const viewport = firstPage.getViewport({ scale: 1 });
+      const value = (key: string) =>
+        typeof details[key] === "string" ? details[key] : "";
+      setDocumentInfo({
+        fileName,
+        pageCount: pdfDocument.numPages,
+        pageSize: `${Math.round(viewport.width)} x ${Math.round(viewport.height)} pt`,
+        fileSize: formatFileSize(editor.bytes.byteLength),
+        title: value("Title"),
+        author: value("Author"),
+        subject: value("Subject"),
+        producer: value("Producer"),
+        creator: value("Creator"),
+        encrypted: passwordProtected
+      });
+      setActiveDialog("document-info");
+    } catch (cause) {
+      setError(errorMessage(cause, "Document information could not be read."));
+    }
+  }, [editor.bytes, fileName, pages, passwordProtected, pdfDocument]);
+
   const splitPdf = useCallback(() => {
     if (!documentPrepared) return;
     setSplitRanges(selectedPageNumbers.join(","));
@@ -2340,7 +2418,13 @@ export default function App() {
           recoverySnapshots={recoverySnapshots}
           onRestoreRecovery={restoreRecoveryRevision}
           onDeleteRecovery={removeRecoveryRevision}
+          onClose={() => setActiveDialog(null)}
+        />
+      )}
+      {activeDialog === "about-support" && (
+        <AboutSupportDialog
           onReportIssue={reportIssue}
+          onExportDiagnostics={exportDiagnostics}
           onOpenPrivacyPolicy={() => openExternalProjectPage(
             PRIVACY_POLICY_URL,
             "The privacy policy could not be opened."
@@ -2413,6 +2497,12 @@ export default function App() {
           onChange={setPasswordValue}
           onCancel={cancelPassword}
           onConfirm={submitPassword}
+        />
+      )}
+      {activeDialog === "document-info" && documentInfo && (
+        <DocumentInfoDialog
+          info={documentInfo}
+          onClose={() => setActiveDialog(null)}
         />
       )}
       {activeDialog === "recovery" && pendingRecovery && (
@@ -2569,10 +2659,10 @@ export default function App() {
           <button aria-label="Open PDF" className={iconButton} onClick={openPdf}>
             <FolderOpen size={16} /> <span className="hidden min-[1050px]:inline">Open</span>
           </button>
-          <button aria-label="Save PDF" className={iconButton} disabled={!pdfDocument} onClick={() => requestSave(false)}>
+          <button aria-label="Save PDF" className={iconButton} disabled={!pdfDocument || passwordProtected} onClick={() => requestSave(false)}>
             <Save size={16} /> <span className="hidden min-[1050px]:inline">Save</span>
           </button>
-          <button aria-label="Save PDF As" className={iconButton} disabled={!pdfDocument} onClick={() => requestSave(true)}>
+          <button aria-label="Save PDF As" className={iconButton} disabled={!pdfDocument || passwordProtected} onClick={() => requestSave(true)}>
             <FileDown size={16} /> <span className="hidden min-[1120px]:inline">Save As</span>
           </button>
           <button
@@ -2642,6 +2732,7 @@ export default function App() {
         onFlattenForms={flattenDocumentForms}
         onOptimize={editor.optimize}
         onSanitize={sanitizeDocumentMetadata}
+        onDocumentInfo={showDocumentInfo}
         onToggleSearch={toggleSearch}
         onZoomChange={(nextZoom) => {
           setZoom(nextZoom);
@@ -2890,6 +2981,7 @@ export default function App() {
               <SelectedAnnotationToolbar
                 annotation={selectedAnnotation}
                 onUpdate={editor.updateAnnotation}
+                onMoveInStack={editor.moveAnnotationInStack}
                 onRemove={(id) => {
                   editor.removeAnnotation(id);
                   setSelectedAnnotationId(null);
@@ -2908,6 +3000,7 @@ export default function App() {
         fileSize={editor.bytes?.byteLength ?? 0}
         zoom={zoom}
         dirty={editor.isDirty}
+        protectedViewing={passwordProtected}
         activity={backgroundActivity}
         onCancelActivity={ocrRunning ? cancelOcr : undefined}
         onPreviousPage={() => jumpToPage(currentPage - 1)}
@@ -2923,6 +3016,7 @@ export default function App() {
             "The VerityPDF releases page could not be opened."
           );
         }}
+        onOpenAbout={() => setActiveDialog("about-support")}
       />
     </div>
   );

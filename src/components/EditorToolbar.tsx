@@ -4,6 +4,7 @@ import {
   FilePlus2,
   Highlighter,
   ImagePlus,
+  Info,
   Minimize2,
   MousePointer2,
   PanelLeft,
@@ -56,6 +57,7 @@ export function EditorToolbar({
   onFlattenForms,
   onOptimize,
   onSanitize,
+  onDocumentInfo,
   onToggleSearch,
   onZoomChange,
   onViewModeChange
@@ -84,6 +86,7 @@ export function EditorToolbar({
   onFlattenForms: Action;
   onOptimize: Action;
   onSanitize: Action;
+  onDocumentInfo: Action;
   onToggleSearch: Action;
   onZoomChange: (zoom: number) => void;
   onViewModeChange: (mode: ViewMode) => void;
@@ -152,6 +155,7 @@ export function EditorToolbar({
         <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-emerald-400/80">Document</span>
         <div className="flex justify-center">
           <ToolbarDropdown label="Document" tooltip="Open document-wide cleanup and export tools" icon={<FileCheck2 size={16} />}>
+            <button data-tooltip="View local file, page, metadata, and encryption details" className={dropdownItem} disabled={!hasDocument} onClick={() => void onDocumentInfo()}><Info size={15} /> Document info</button>
             <button data-tooltip="Make form values permanent page content; fields can no longer be edited" className={dropdownItem} disabled={!documentPrepared} onClick={() => void onFlattenForms()}><FileCheck2 size={15} /> Flatten forms</button>
             <button data-tooltip="Compress PDF structure; images are unchanged, so size may not decrease" className={dropdownItem} disabled={!documentPrepared} onClick={() => void onOptimize()}><Minimize2 size={15} /> Optimize PDF</button>
             <button data-tooltip="Clear basic metadata only; attachments, scripts, layers, and comments may remain" className={dropdownItem} disabled={!documentPrepared} onClick={() => void onSanitize()}><ShieldCheck size={15} /> Sanitize metadata</button>
@@ -161,6 +165,7 @@ export function EditorToolbar({
       <div className="hidden min-w-0 flex-col gap-2 border-r border-white/10 px-2 pb-1 pt-2 min-[1680px]:flex">
         <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-emerald-400/80">Document</span>
         <div className="flex justify-center">
+          <button className={iconButton + " toolbar-tooltip"} disabled={!hasDocument} onClick={() => void onDocumentInfo()} data-tooltip="View local file, page, metadata, and encryption details"><Info size={16} /> Info</button>
           <button className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void onFlattenForms()} data-tooltip="Make form values permanent page content; fields can no longer be edited"><FileCheck2 size={16} /> Flatten Forms</button>
           <button className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void onOptimize()} data-tooltip="Compress PDF structure; images are unchanged, so size may not decrease"><Minimize2 size={16} /> Optimize</button>
           <button className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void onSanitize()} data-tooltip="Clear basic metadata only; attachments, scripts, layers, and comments may remain"><ShieldCheck size={16} /> Sanitize</button>
@@ -171,11 +176,11 @@ export function EditorToolbar({
         <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-500">View</span>
         <div className="flex items-center justify-center gap-0.5">
           <button className={compactToolButton + (searchOpen ? " bg-white/10 text-white" : "")} disabled={!hasDocument} onClick={() => void onToggleSearch()} data-tooltip="Search prepared text; image-only pages are OCR-processed in the background (Ctrl/Command+F)" data-tooltip-align="end"><Search size={16} /><span className="hidden min-[1200px]:inline">Find</span></button>
-          <button className={compactToolButton} disabled={!hasDocument} onClick={() => onZoomChange(Math.max(0.25, zoom - 0.1))} data-tooltip="Decrease document zoom by 10%" data-tooltip-align="end"><ZoomOut size={16} /></button>
+          <button aria-label="Zoom out" className={compactToolButton} disabled={!hasDocument} onClick={() => onZoomChange(Math.max(0.25, zoom - 0.1))} data-tooltip="Decrease document zoom by 10%" data-tooltip-align="end"><ZoomOut size={16} /></button>
           <label className="flex h-8 items-center rounded border border-white/10 bg-black/15 px-1 text-xs text-zinc-400">
             <input aria-label="Zoom percentage" type="number" min="25" max="400" value={Math.round(zoom * 100)} disabled={!hasDocument} onChange={(event) => onZoomChange(Math.min(4, Math.max(0.25, Number(event.target.value) / 100)))} className="w-9 bg-transparent text-right text-xs text-zinc-300 outline-none" />%
           </label>
-          <button className={compactToolButton} disabled={!hasDocument} onClick={() => onZoomChange(Math.min(4, zoom + 0.1))} data-tooltip="Increase document zoom by 10%" data-tooltip-align="end"><ZoomIn size={16} /></button>
+          <button aria-label="Zoom in" className={compactToolButton} disabled={!hasDocument} onClick={() => onZoomChange(Math.min(4, zoom + 0.1))} data-tooltip="Increase document zoom by 10%" data-tooltip-align="end"><ZoomIn size={16} /></button>
           <ToolbarDropdown label="Fit" tooltip="Choose how pages scale within the workspace" tooltipAlign="end" icon={<Minimize2 size={16} />} className="[&_div]:left-auto [&_div]:right-0">
             <button data-tooltip="Scale the current page to the available workspace width" data-tooltip-align="end" className={dropdownItem + (viewMode === "fit-width" ? " bg-white/10 text-white" : "")} disabled={!hasDocument} onClick={() => onViewModeChange("fit-width")}><Minimize2 size={15} /> Fit to width</button>
             <button data-tooltip="Scale the current page to fit entirely within the workspace" data-tooltip-align="end" className={dropdownItem + (viewMode === "fit-page" ? " bg-white/10 text-white" : "")} disabled={!hasDocument} onClick={() => onViewModeChange("fit-page")}><FileCheck2 size={15} /> Fit entire page</button>

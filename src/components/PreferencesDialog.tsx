@@ -1,17 +1,10 @@
 import {
-  Bug,
-  ExternalLink,
   FileCheck2,
-  Github,
-  Globe2,
   Monitor,
   Moon,
-  Scale,
-  ShieldCheck,
   Sun,
   WifiOff
 } from "lucide-react";
-import { version } from "../../package.json";
 import type { TextStyle } from "../editor/useDocumentEditor";
 import type { RecoverySnapshot } from "../recoveryStore";
 import type { AppPreferences } from "../preferences";
@@ -32,10 +25,6 @@ export function PreferencesDialog({
   recoverySnapshots,
   onRestoreRecovery,
   onDeleteRecovery,
-  onReportIssue,
-  onOpenPrivacyPolicy,
-  onOpenRepository,
-  onOpenWebsite,
   onClose
 }: {
   preferences: AppPreferences;
@@ -50,10 +39,6 @@ export function PreferencesDialog({
   recoverySnapshots: RecoverySnapshot[];
   onRestoreRecovery: (snapshot: RecoverySnapshot) => void;
   onDeleteRecovery: (snapshot: RecoverySnapshot) => void | Promise<void>;
-  onReportIssue: () => void | Promise<void>;
-  onOpenPrivacyPolicy: () => void | Promise<void>;
-  onOpenRepository: () => void | Promise<void>;
-  onOpenWebsite: () => void | Promise<void>;
   onClose: () => void;
 }) {
   const updatePreferences = (updates: Partial<AppPreferences>) =>
@@ -110,64 +95,6 @@ export function PreferencesDialog({
         </div>
       </section>
 
-      <section className="mt-3 rounded-lg border border-blue-400/20 bg-blue-500/5 p-4">
-        <div className="flex items-start gap-3">
-          <img
-            src="/app-icon.png"
-            alt=""
-            aria-hidden="true"
-            className="h-12 w-12 shrink-0 rounded-xl shadow-lg"
-          />
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <h3 className="text-sm font-semibold text-zinc-100">
-                About VerityPDF
-              </h3>
-              <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-zinc-400">
-                Version {version}
-              </span>
-            </div>
-            <p className="mt-1 text-xs leading-5 text-zinc-400">
-              A free, open-source PDF editor that processes documents locally
-              without accounts, cloud uploads, analytics, or advertising.
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="inline-flex h-9 items-center gap-2 rounded-md bg-orange-500/15 px-3 text-xs font-semibold text-orange-100 hover:bg-orange-500/25"
-                onClick={() => void onOpenWebsite()}
-              >
-                <Globe2 size={14} />
-                Website
-                <ExternalLink size={12} />
-              </button>
-              <button
-                type="button"
-                className="inline-flex h-9 items-center gap-2 rounded-md bg-blue-500/15 px-3 text-xs font-semibold text-blue-100 hover:bg-blue-500/25"
-                onClick={() => void onOpenPrivacyPolicy()}
-              >
-                <ShieldCheck size={14} />
-                Privacy policy
-                <ExternalLink size={12} />
-              </button>
-              <button
-                type="button"
-                className="inline-flex h-9 items-center gap-2 rounded-md bg-white/10 px-3 text-xs font-semibold text-zinc-200 hover:bg-white/15"
-                onClick={() => void onOpenRepository()}
-              >
-                <Github size={14} />
-                Source code
-                <ExternalLink size={12} />
-              </button>
-              <span className="inline-flex h-9 items-center gap-2 rounded-md border border-white/10 px-3 text-xs font-medium text-zinc-400">
-                <Scale size={14} />
-                AGPL-3.0
-              </span>
-            </div>
-          </div>
-        </div>
-      </section>
-
       <section className="mt-3 rounded-lg border border-white/10 bg-black/15 p-4">
         <div className="flex items-start gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-300">
@@ -206,28 +133,6 @@ export function PreferencesDialog({
             </p>
             <button type="button" className="mt-3 h-9 rounded-md border border-red-400/20 bg-red-500/10 px-3 text-xs font-semibold text-red-200 hover:bg-red-500/20" onClick={onClearLocalData}>
               Clear recent files and settings
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <section className="mt-3 rounded-lg border border-white/10 bg-black/15 p-4">
-        <div className="flex items-start gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-500/10 text-orange-300">
-            <Bug size={18} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h3 className="text-sm font-semibold text-zinc-100">Help improve VerityPDF</h3>
-            <p className="mt-1 text-xs leading-5 text-zinc-400">
-              Report a bug or request a feature on GitHub. This opens your system browser only when you choose it; no document information or diagnostics are sent automatically.
-            </p>
-            <button
-              type="button"
-              className="mt-3 inline-flex h-9 items-center gap-2 rounded-md bg-orange-500/15 px-3 text-xs font-semibold text-orange-100 hover:bg-orange-500/25"
-              onClick={() => void onReportIssue()}
-            >
-              <ExternalLink size={14} />
-              Report an issue on GitHub
             </button>
           </div>
         </div>

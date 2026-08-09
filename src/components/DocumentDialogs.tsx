@@ -1,6 +1,59 @@
 import type { RecoverySnapshot } from "../recoveryStore";
 import { AppDialog } from "./AppDialog";
 
+export type DocumentInfo = {
+  fileName: string;
+  pageCount: number;
+  pageSize: string;
+  fileSize: string;
+  title: string;
+  author: string;
+  subject: string;
+  producer: string;
+  creator: string;
+  encrypted: boolean;
+};
+
+export function DocumentInfoDialog({
+  info,
+  onClose
+}: {
+  info: DocumentInfo;
+  onClose: () => void;
+}) {
+  const rows = [
+    ["File", info.fileName],
+    ["Pages", String(info.pageCount)],
+    ["Page size", info.pageSize],
+    ["File size", info.fileSize],
+    ["Encryption", info.encrypted ? "Password protected" : "Not password protected"],
+    ["Title", info.title || "Not set"],
+    ["Author", info.author || "Not set"],
+    ["Subject", info.subject || "Not set"],
+    ["Producer", info.producer || "Not set"],
+    ["Creator", info.creator || "Not set"]
+  ];
+  return (
+    <AppDialog
+      title="Document Info"
+      description="This information is read locally from the open PDF."
+      confirmLabel="Done"
+      showCancel={false}
+      onCancel={onClose}
+      onConfirm={onClose}
+    >
+      <dl className="divide-y divide-white/10 rounded-lg border border-white/10 bg-black/10 px-3">
+        {rows.map(([label, value]) => (
+          <div key={label} className="grid grid-cols-[6.5rem_1fr] gap-3 py-2.5 text-xs">
+            <dt className="font-medium text-zinc-400">{label}</dt>
+            <dd className="min-w-0 break-words text-zinc-200">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </AppDialog>
+  );
+}
+
 export function PasswordDialog({
   value,
   incorrect,

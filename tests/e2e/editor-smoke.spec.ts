@@ -36,6 +36,29 @@ async function imageOnlyPdf() {
   return Buffer.from(await pdf.save());
 }
 
+function encryptedPdf() {
+  // A deterministic one-page PDF encrypted with the password below. Keeping
+  // the fixture inline avoids relying on a native PDF encryption tool in CI.
+  const fixture = Buffer.from(
+    "JVBERi0xLjMKJeLjz9MKMSAwIG9iago8PAovUHJvZHVjZXIgPDNkNjc3NDViMWM+Ci9UaXRsZSA8MDg3MDY3NGQwMzBlOTViOGUyODZlMmMxMTk5YzM1NGRiODFhNTcyYTMwY2NlZWJiPgovQXV0aG9yIDwxYjdiNzY1NjBlMDdiMTk5YzA4NmMwYzExODgxMzI+Cj4+CmVuZG9iagoyIDAgb2JqCjw8Ci9UeXBlIC9QYWdlcwovQ291bnQgMQovS2lkcyBbIDQgMCBSIF0KPj4KZW5kb2JqCjMgMCBvYmoKPDwKL1R5cGUgL0NhdGFsb2cKL1BhZ2VzIDIgMCBSCj4+CmVuZG9iago0IDAgb2JqCjw8Ci9UeXBlIC9QYWdlCi9SZXNvdXJjZXMgPDwKPj4KL01lZGlhQm94IFsgMC4wIDAuMCA2MTIgNzkyIF0KL1BhcmVudCAyIDAgUgo+PgplbmRvYmoKNSAwIG9iago8PAovViAyCi9SIDMKL0xlbmd0aCAxMjgKL1AgNDI5NDk2NzI5MgovRmlsdGVyIC9TdGFuZGFyZAovTyA8ZmIzMjljYjVjODM1ZTg5MWMyYjI0YjFlZTM5MDVlZmVhNjhiZmMwNjhhZWE4ZWM4ZmM2OGZlNzY3YWZkZDYyMj4KL1UgPDZmYmM4NGJhOWNjYTA2NTBkZGQyYTE0ODU0NzAzYzFlMjhiZjRlNWU0ZTc1OGE0MTY0MDA0ZTU2ZmZmYTAxMDg+Cj4+CmVuZG9iagp4cmVmCjAgNgowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMTUgMDAwMDAgbiAKMDAwMDAwMDE1OCAwMDAwMCBuIAowMDAwMDAwMjE3IDAwMDAwIG4gCjAwMDAwMDAyNjYgMDAwMDAgbiAKMDAwMDAwMDM2MCAwMDAwMCBuIAp0cmFpbGVyCjw8Ci9TaXplIDYKL1Jvb3QgMyAwIFIKL0luZm8gMSAwIFIKL0lEIFsgPDM2NjU2MjMzMzc2NTM4MzIzNjM2MzY2MjMwNjY2MjYyMzYzMTY1NjUzMzY0MzE2NDMzNjQzNzY0NjQ2NjM4NjQ+IDwzNjY1NjIzMzM3NjUzODMyMzYzNjM2NjIzMDY2NjI2MjM2MzE2NTY1MzM2NDMxNjQzMzY0Mzc2NDY0NjYzODY0PiBdCi9FbmNyeXB0IDUgMCBSCj4+CnN0YXJ0eHJlZgo1NzUKJSVFT0YK",
+    "base64"
+  );
+  return Buffer.from(
+    fixture
+      .toString("latin1")
+      .replace("/V 2\n/R 3\n/Length 128", "/V 1\n/R 2\n/Length 40")
+      .replace(
+        /\/O <[0-9a-f]+>/,
+        "/O <80114fbd8fcd5d8d166921696569c70b801d62028963a30f606c808311a441d7>"
+      )
+      .replace(
+        /\/U <[0-9a-f]+>/,
+        "/U <f6fc77b1be0ade8edc91b9d226c9f78476615626001d14c8ad581eb7347e563e>"
+      ),
+    "latin1"
+  );
+}
+
 async function largePdf(pageCount = 120) {
   const pdf = await PDFDocument.create();
   for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
@@ -147,9 +170,12 @@ test("fresh preferences use privacy-conscious save defaults", async ({ page }) =
   await expect(
     page.getByText("No background network requests are made.", { exact: false })
   ).toBeVisible();
+  await page.getByRole("button", { name: "Done" }).click();
+  await page.getByRole("button", { name: "Open About and Support" }).click();
   await expect(
-    page.getByRole("heading", { name: "About VerityPDF" })
+    page.getByRole("dialog", { name: "About & Support" })
   ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "VerityPDF", exact: true })).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Privacy policy" })
   ).toBeVisible();
@@ -477,6 +503,86 @@ test("handles completed, canceled, styled, and page-edge text placement", async 
   await emptyInput.press("Enter");
   await expect(annotationLayer).toHaveAttribute("data-active-tool", "select");
   await expect(page.getByRole("textbox", { name: "Text annotation" })).toHaveCount(0);
+});
+
+test("shows local document information and annotation layer controls", async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 1800, height: 900 });
+  await page.goto("/");
+  await page.locator(
+    'input[type="file"][accept="application/pdf,.pdf"]'
+  ).nth(0).setInputFiles({
+    name: "document-info.pdf",
+    mimeType: "application/pdf",
+    buffer: await syntheticPdf()
+  });
+  await expect(page.getByText("3 pages", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Info" }).click();
+  const info = page.getByRole("dialog", { name: "Document Info" });
+  await expect(info).toContainText("document-info.pdf");
+  await expect(info).toContainText("612 x 792 pt");
+  await expect(info).toContainText("Not password protected");
+  await info.getByRole("button", { name: "Done" }).click();
+
+  await page.getByRole("button", { name: "Text" }).click();
+  const annotationLayer = page.locator('[aria-label="Page 1"] [aria-label="Annotation layer"]');
+  await annotationLayer.click({ position: { x: 180, y: 140 } });
+  const input = page.getByRole("textbox", { name: "Text annotation" });
+  await input.fill("Layered note");
+  await input.press("Enter");
+  const properties = page.getByRole("region", { name: "Edit selected text annotation" });
+  await expect(properties.getByRole("button", {
+    name: "Bring selected annotation forward"
+  })).toBeVisible();
+  await expect(properties.getByRole("button", {
+    name: "Send selected annotation backward"
+  })).toBeVisible();
+  await expect(properties.getByRole("button", {
+    name: "Bring selected annotation to front"
+  })).toBeVisible();
+  await expect(properties.getByRole("button", {
+    name: "Send selected annotation to back"
+  })).toBeVisible();
+  await properties.getByRole("button", {
+    name: "Bring selected annotation forward"
+  }).click();
+  await properties.getByRole("button", {
+    name: "Send selected annotation backward"
+  }).click();
+  await properties.getByRole("button", {
+    name: "Bring selected annotation to front"
+  }).click();
+  await properties.getByRole("button", {
+    name: "Send selected annotation to back"
+  }).click();
+  await expect(page.getByText("Layered note", { exact: true })).toBeVisible();
+});
+
+test("retries an encrypted PDF password locally and keeps saving protected", async ({
+  page
+}) => {
+  await page.goto("/");
+  await page.locator(
+    'input[type="file"][accept="application/pdf,.pdf"]'
+  ).nth(0).setInputFiles({
+    name: "encrypted.pdf",
+    mimeType: "application/pdf",
+    buffer: encryptedPdf()
+  });
+  const password = page.getByRole("dialog", { name: "Password required" });
+  await expect(password).toContainText("saved, logged, or transmitted");
+  await password.getByLabel("PDF password").fill("wrong-password");
+  await password.getByRole("button", { name: "Unlock PDF" }).click();
+  await expect(password).toContainText("That password was not accepted");
+  await password.getByLabel("PDF password").fill("verity-test-password");
+  await password.getByRole("button", { name: "Unlock PDF" }).click();
+  await expect(password).toHaveCount(0);
+  await expect(page.locator('[aria-label="Page 1"]')).toBeVisible();
+  await expect(page.getByText("encrypted.pdf", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save PDF As" })).toBeDisabled();
+  await expect(page.getByLabel("Document status")).toContainText("Protected viewing");
 });
 
 test("aligns text formatting controls beneath the Markup toolbar group", async ({
