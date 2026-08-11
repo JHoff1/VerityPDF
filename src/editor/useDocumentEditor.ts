@@ -130,6 +130,17 @@ export type FormFieldUpdate = {
   value: FormFieldValue;
 };
 
+/**
+ * PDF.js exposes the widget index (for example `"1"`) for some radio groups,
+ * whereas pdf-lib expects the radio group's export value (for example `"High"`).
+ * Prefer an already-valid export value, then translate a numeric widget index.
+ */
+export function normalizeRadioSelection(value: string, options: string[]) {
+  if (options.includes(value)) return value;
+  if (/^\d+$/.test(value)) return options[Number(value)] ?? value;
+  return value;
+}
+
 function setPdfFormFieldValue(pdf: PDFDocument, { name, kind, value }: FormFieldUpdate) {
   const field = pdf.getForm().getFields().find((candidate) => candidate.getName() === name);
   if (!field) return;
@@ -145,7 +156,11 @@ function setPdfFormFieldValue(pdf: PDFDocument, { name, kind, value }: FormField
       (field as { select: (selected: string | string[]) => void }).select(value as string | string[]);
     }
   } else if (kind === "radio" && typeof value === "string" && "select" in field) {
-    (field as { select: (selected: string) => void }).select(value);
+    const radio = field as unknown as {
+      getOptions?: () => string[];
+      select: (selected: string) => void;
+    };
+    radio.select(normalizeRadioSelection(value, radio.getOptions?.() ?? []));
   }
 }
 

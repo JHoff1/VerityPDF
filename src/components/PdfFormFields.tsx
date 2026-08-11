@@ -31,7 +31,7 @@ export function PdfFormFields({
         }
         if (field.kind === "radio") {
           const option = field.options[0]?.value ?? "Yes";
-          return <input key={field.id} aria-label={field.name} title={field.name} type="radio" defaultChecked={String(value) === option} disabled={field.readOnly} className="pointer-events-auto absolute cursor-pointer border border-sky-600 bg-white accent-sky-600 shadow-sm" style={{ ...style, colorScheme: "light" }} onChange={() => onCommit(field, option)} />;
+          return <input key={field.id} aria-label={field.name} title={field.name} name={`pdf-radio-${field.page}-${field.name}`} type="radio" checked={String(value) === option} disabled={field.readOnly} className="pointer-events-auto absolute cursor-pointer border border-sky-600 bg-white accent-sky-600 shadow-sm" style={{ ...style, colorScheme: "light" }} onChange={() => onCommit(field, option)} />;
         }
         const textValue = Array.isArray(value) ? value.join(", ") : String(value);
         return field.multiline
