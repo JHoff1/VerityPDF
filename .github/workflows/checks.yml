@@ -198,9 +198,9 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-          # Keep package-build caches separate from native checks. This also
-          # invalidates an older cache that was missing compiled Tauri crates.
-          prefix-key: v1-rust-linux-packages
+          # Reuse registries, but build package targets from scratch. A
+          # restored target cache on Ubuntu 22.04 was missing Tauri crates.
+          cache-targets: false
 
       - name: Install frontend dependencies
         run: npm ci
