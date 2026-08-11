@@ -13,7 +13,7 @@ export function SearchPanel({
   onMove,
   onClose
 }: {
-  inputRef: RefObject<HTMLInputElement>;
+  inputRef: RefObject<HTMLInputElement | null>;
   query: string;
   resultCount: number;
   resultIndex: number;
