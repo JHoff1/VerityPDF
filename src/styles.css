@@ -3,7 +3,9 @@
 @source "./";
 @source "../index.html";
 
-@theme {
+/* Inline the aliases so light-mode overrides on `.app-shell` are resolved
+   where each utility is used rather than frozen from the dark `:root`. */
+@theme inline {
   --color-ink: var(--app-color-ink);
   --color-panel: var(--app-color-panel);
   --color-toolbar: var(--app-color-toolbar);
