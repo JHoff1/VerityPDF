@@ -19,6 +19,8 @@ import type {
   Tool
 } from "../editorUiTypes";
 import { clonePlain, createLocalId } from "../localUtils";
+import { PdfFormFields } from "./PdfFormFields";
+import type { FormWidget, FormFieldValue } from "../editor/pdfForms";
 import {
   cachePageRender,
   getCachedPageRender,
@@ -40,6 +42,7 @@ export function PdfPageCanvas({
   scale,
   onVisible,
   annotations,
+  formFields,
   activeTool,
   onAddAnnotation,
   onTextFinished,
@@ -49,9 +52,11 @@ export function PdfPageCanvas({
   searchMatches,
   activeSearchMatchId,
   selectedAnnotationId,
+  selectedAnnotationIds,
   onSelectAnnotation,
   onUpdateAnnotation,
   onRemoveAnnotation,
+  onCommitFormField,
   onRenderingChange,
   pageId
 }: {
@@ -59,6 +64,7 @@ export function PdfPageCanvas({
   scale: number;
   onVisible: (page: number) => void;
   annotations: Annotation[];
+  formFields: FormWidget[];
   activeTool: Tool;
   onAddAnnotation: (annotation: Annotation) => void;
   onTextFinished: (id: string | null) => void;
@@ -68,9 +74,11 @@ export function PdfPageCanvas({
   searchMatches: SearchMatch[];
   activeSearchMatchId: string | null;
   selectedAnnotationId: string | null;
-  onSelectAnnotation: (id: string | null) => void;
+  selectedAnnotationIds: Set<string>;
+  onSelectAnnotation: (id: string | null, additive?: boolean) => void;
   onUpdateAnnotation: (id: string, updates: Partial<Annotation>, label?: string) => void;
   onRemoveAnnotation: (id: string) => void;
+  onCommitFormField: (field: FormWidget, value: FormFieldValue) => void;
   onRenderingChange?: (page: number, rendering: boolean) => void;
   pageId?: string | null;
 }) {
@@ -173,6 +181,10 @@ export function PdfPageCanvas({
     if (annotation.kind === "image") return;
     event.preventDefault();
     event.stopPropagation();
+    if (event.ctrlKey || event.metaKey) {
+      onSelectAnnotation(annotation.id, true);
+      return;
+    }
     event.currentTarget.setPointerCapture(event.pointerId);
     annotationGesture.current = {
       mode,
@@ -183,7 +195,7 @@ export function PdfPageCanvas({
     };
     annotationDraftRef.current = clonePlain(annotation);
     setAnnotationDraft(clonePlain(annotation));
-    onSelectAnnotation(annotation.id);
+    onSelectAnnotation(annotation.id, event.ctrlKey || event.metaKey);
   }, [boundsForAnnotation, onSelectAnnotation]);
 
   const moveAnnotationGesture = useCallback((event: ReactPointerEvent<HTMLElement>) => {
@@ -339,6 +351,10 @@ export function PdfPageCanvas({
   ) => {
     event.preventDefault();
     event.stopPropagation();
+    if (event.ctrlKey || event.metaKey) {
+      onSelectAnnotation(annotation.id, true);
+      return;
+    }
     event.currentTarget.setPointerCapture(event.pointerId);
     const start = {
       id: annotation.id,
@@ -355,7 +371,7 @@ export function PdfPageCanvas({
     };
     imageDraftRef.current = start;
     setImageDraft(start);
-    onSelectAnnotation(annotation.id);
+    onSelectAnnotation(annotation.id, event.ctrlKey || event.metaKey);
   }, [onSelectAnnotation]);
 
   const moveImageGesture = useCallback((event: ReactPointerEvent<HTMLElement>) => {
@@ -498,6 +514,7 @@ export function PdfPageCanvas({
           </div>
         </div>
       )}
+      <PdfFormFields fields={formFields} activeTool={activeTool} onCommit={onCommitFormField} />
       <svg
         viewBox="0 0 1 1"
         preserveAspectRatio="none"
@@ -598,7 +615,7 @@ export function PdfPageCanvas({
           if (annotation.kind === "image") return null;
           const displayed = annotationDraft?.id === annotation.id ? annotationDraft : annotation;
           const box = boundsForAnnotation(displayed);
-          const selected = selectedAnnotationId === annotation.id;
+          const selected = selectedAnnotationIds.has(annotation.id);
           return (
             <div
               key={`annotation-controls-${annotation.id}`}
@@ -622,7 +639,6 @@ export function PdfPageCanvas({
               onPointerUp={finishAnnotationGesture}
               onClick={(event) => {
                 event.stopPropagation();
-                onSelectAnnotation(annotation.id);
               }}
             >
               {selected && activeTool === "select" && (
@@ -658,7 +674,7 @@ export function PdfPageCanvas({
         {annotations.map((annotation) => {
           if (annotation.kind !== "image") return null;
           const box = imageDraft?.id === annotation.id ? imageDraft : annotation;
-          const selected = selectedAnnotationId === annotation.id;
+          const selected = selectedAnnotationIds.has(annotation.id);
           return (
             <div
               key={`image-controls-${annotation.id}`}
@@ -674,7 +690,6 @@ export function PdfPageCanvas({
               onPointerUp={finishImageGesture}
               onClick={(event) => {
                 event.stopPropagation();
-                onSelectAnnotation(annotation.id);
               }}
             >
               {selected && activeTool === "select" && (

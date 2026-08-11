@@ -1,6 +1,7 @@
 import {
   ArrowDownToLine,
   ArrowUpToLine,
+  Copy,
   ChevronDown,
   ChevronUp,
   Trash2
@@ -10,17 +11,52 @@ import type { Annotation, TextStyle } from "../editor/useDocumentEditor";
 export function SelectedAnnotationToolbar({
   annotation,
   onUpdate,
+  selectedAnnotations,
+  onUpdateMany,
+  onDuplicate,
   onRemove,
   onMoveInStack
 }: {
   annotation: Annotation;
+  selectedAnnotations: Annotation[];
   onUpdate: (id: string, updates: Partial<Annotation>, label?: string) => void;
+  onUpdateMany: (updates: { id: string; updates: Partial<Annotation> }[], label?: string) => void;
+  onDuplicate: (ids: string[]) => void;
   onRemove: (id: string) => void;
   onMoveInStack: (
     id: string,
     direction: "forward" | "backward" | "front" | "back"
   ) => void;
 }) {
+  const multiple = selectedAnnotations.length > 1;
+  const align = (axis: "left" | "right" | "top" | "bottom" | "center" | "middle") => {
+    const items = selectedAnnotations.filter((item) => item.kind === "text" || item.kind === "image" || item.kind === "redaction");
+    if (items.length < 2) return;
+    const values = items.map((item) => {
+      const width = item.kind === "image" || item.kind === "redaction" ? item.width : 0;
+      const height = item.kind === "image" || item.kind === "redaction" ? item.height : 0;
+      return { item, width, height };
+    });
+    const minX = Math.min(...values.map(({ item }) => item.x));
+    const maxX = Math.max(...values.map(({ item, width }) => item.x + width));
+    const minY = Math.min(...values.map(({ item }) => item.y));
+    const maxY = Math.max(...values.map(({ item, height }) => item.y + height));
+    onUpdateMany(values.map(({ item, width, height }) => ({
+      id: item.id,
+      updates: {
+        ...(axis === "left" ? { x: minX } : axis === "right" ? { x: Math.max(0, maxX - width) } : axis === "center" ? { x: Math.max(0, (minX + maxX - width) / 2) } : {}),
+        ...(axis === "top" ? { y: minY } : axis === "bottom" ? { y: Math.max(0, maxY - height) } : axis === "middle" ? { y: Math.max(0, (minY + maxY - height) / 2) } : {})
+      }
+    })), `Align ${items.length} annotations`);
+  };
+  const snapPrimary = () => {
+    const round = (value: number) => Math.round(value * 100) / 100;
+    if (annotation.kind === "image" || annotation.kind === "redaction") {
+      onUpdate(annotation.id, { x: round(annotation.x), y: round(annotation.y), width: round(annotation.width), height: round(annotation.height) }, "Snap annotation to grid");
+    } else if (annotation.kind === "text") {
+      onUpdate(annotation.id, { x: round(annotation.x), y: round(annotation.y) }, "Snap annotation to grid");
+    }
+  };
   return (
     <aside
       role="region"
@@ -35,7 +71,7 @@ export function SelectedAnnotationToolbar({
           {annotation.kind} annotation
         </h2>
         <p className="mt-1 text-[11px] leading-4 text-zinc-500">
-          Changes apply to the currently selected annotation.
+          {multiple ? `${selectedAnnotations.length} annotations selected.` : "Changes apply to the currently selected annotation."}
         </p>
       </div>
 
@@ -200,6 +236,23 @@ export function SelectedAnnotationToolbar({
           Drag the image to move it. Use its lower-right handle to resize it while preserving its aspect ratio.
         </div>
       )}
+
+      {(annotation.kind === "text" || annotation.kind === "image" || annotation.kind === "redaction") && (
+        <div className="mt-5 border-t border-white/10 pt-4">
+          <span className="mb-2 block text-[11px] font-medium text-zinc-400">Position and size</span>
+          <div className="grid grid-cols-2 gap-2">
+            <label><span className="mb-1 block text-[10px] text-zinc-500">X</span><input aria-label="Annotation X position" type="number" min="0" max="100" step="0.1" value={Math.round(annotation.x * 1000) / 10} onChange={(event) => onUpdate(annotation.id, { x: Math.max(0, Math.min(1, Number(event.target.value) / 100)) }, "Move annotation")} className="h-8 w-full rounded border border-white/15 bg-black/20 px-2 text-xs" /></label>
+            <label><span className="mb-1 block text-[10px] text-zinc-500">Y</span><input aria-label="Annotation Y position" type="number" min="0" max="100" step="0.1" value={Math.round(annotation.y * 1000) / 10} onChange={(event) => onUpdate(annotation.id, { y: Math.max(0, Math.min(1, Number(event.target.value) / 100)) }, "Move annotation")} className="h-8 w-full rounded border border-white/15 bg-black/20 px-2 text-xs" /></label>
+            {(annotation.kind === "image" || annotation.kind === "redaction") && <><label><span className="mb-1 block text-[10px] text-zinc-500">Width</span><input aria-label="Annotation width" type="number" min="1" max="100" step="0.1" value={Math.round(annotation.width * 1000) / 10} onChange={(event) => onUpdate(annotation.id, { width: Math.max(0.01, Math.min(1 - annotation.x, Number(event.target.value) / 100)) }, "Resize annotation")} className="h-8 w-full rounded border border-white/15 bg-black/20 px-2 text-xs" /></label><label><span className="mb-1 block text-[10px] text-zinc-500">Height</span><input aria-label="Annotation height" type="number" min="1" max="100" step="0.1" value={Math.round(annotation.height * 1000) / 10} onChange={(event) => onUpdate(annotation.id, { height: Math.max(0.01, Math.min(1 - annotation.y, Number(event.target.value) / 100)) }, "Resize annotation")} className="h-8 w-full rounded border border-white/15 bg-black/20 px-2 text-xs" /></label></>}
+          </div>
+          <button type="button" className="mt-2 h-8 w-full rounded border border-white/10 text-xs text-zinc-300 hover:bg-white/10" onClick={snapPrimary}>Snap to 1% grid</button>
+        </div>
+      )}
+
+      <div className="mt-5 border-t border-white/10 pt-4">
+        <button type="button" className="flex h-9 w-full items-center justify-center gap-2 rounded-md border border-white/10 text-xs font-medium text-zinc-300 hover:bg-white/10" onClick={() => onDuplicate(selectedAnnotations.map((item) => item.id))}><Copy size={14} />Duplicate{multiple ? ` ${selectedAnnotations.length}` : ""}</button>
+        {multiple && <div className="mt-3"><span className="mb-2 block text-[11px] font-medium text-zinc-400">Alignment guides</span><div className="grid grid-cols-3 gap-1.5">{(["left", "center", "right", "top", "middle", "bottom"] as const).map((direction) => <button key={direction} type="button" className="h-8 rounded border border-white/10 text-[10px] capitalize text-zinc-300 hover:bg-white/10" onClick={() => align(direction)}>{direction}</button>)}</div><p className="mt-2 text-[10px] leading-4 text-zinc-500">Aligns the selected text, image, and redaction annotations. Hold Ctrl/Command while clicking annotations to select more.</p></div>}
+      </div>
 
       <div className="mt-5 border-t border-white/10 pt-4">
         <span className="mb-2 block text-[11px] font-medium text-zinc-400">Layer order</span>

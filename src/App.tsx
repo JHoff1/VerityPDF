@@ -37,6 +37,8 @@ import type { Worker as TesseractWorker } from "tesseract.js";
 import {
   useDocumentEditor,
   type Annotation,
+  applyPdfFormUpdates,
+  type FormFieldUpdate,
   type TextStyle
 } from "./editor/useDocumentEditor";
 import {
@@ -76,6 +78,8 @@ import { loadPdfRuntime } from "./lib/pdfRuntime";
 import { PrintDialog } from "./components/PrintDialog";
 import { PageThumbnail } from "./components/PageThumbnail";
 import { SelectedAnnotationToolbar } from "./components/SelectedAnnotationToolbar";
+import { PdfFormFields } from "./components/PdfFormFields";
+import { detectFormWidgets, type FormWidget } from "./editor/pdfForms";
 import { VirtualizedPdfPage } from "./components/VirtualizedPdfPage";
 import { EditorToolbar } from "./components/EditorToolbar";
 import { PdfPageCanvas } from "./components/PdfPageCanvas";
@@ -268,6 +272,10 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>(preferences.viewMode);
   const [activeTool, setActiveTool] = useState<Tool>("select");
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
+  const [selectedAnnotationIds, setSelectedAnnotationIds] = useState<Set<string>>(() => new Set());
+  const [formWidgets, setFormWidgets] = useState<FormWidget[]>([]);
+  const [formDrafts, setFormDrafts] = useState<Record<string, FormFieldUpdate>>({});
+  const hasFormDrafts = Object.keys(formDrafts).length > 0;
   const [textStyle, setTextStyle] = useState<TextStyle>(preferences.textStyle);
   const [sidebarTab, setSidebarTab] = useState<"pages" | "bookmarks">("pages");
   const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([]);
@@ -314,6 +322,7 @@ export default function App() {
   const imageFileInput = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const pageSelectionAnchor = useRef(1);
+  const annotationClipboard = useRef<Annotation[]>([]);
   const sessionRestoreAttempted = useRef(false);
 
   const openExternalProjectPage = async (
@@ -456,8 +465,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    dirtyRef.current = editor.isDirty;
-  }, [editor.isDirty]);
+    dirtyRef.current = editor.isDirty || hasFormDrafts;
+  }, [editor.isDirty, hasFormDrafts]);
 
   useEffect(() => {
     let cancelled = false;
@@ -801,18 +810,59 @@ export default function App() {
     return () => window.clearTimeout(timeout);
   }, [successMessage]);
 
+  const selectAnnotation = useCallback((id: string | null, additive = false) => {
+    if (!id) {
+      setSelectedAnnotationId(null);
+      setSelectedAnnotationIds(new Set());
+      return;
+    }
+    setSelectedAnnotationIds((current) => {
+      if (!additive) return new Set([id]);
+      const next = new Set(current);
+      next.has(id) ? next.delete(id) : next.add(id);
+      setSelectedAnnotationId(next.has(id) ? id : next.values().next().value ?? null);
+      return next;
+    });
+    if (!additive) setSelectedAnnotationId(id);
+  }, []);
+
   useEffect(() => {
-    const handleDeleteAnnotation = (event: KeyboardEvent) => {
-      if (!selectedAnnotationId || (event.key !== "Delete" && event.key !== "Backspace")) return;
+    const handleAnnotationShortcuts = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.matches("input, textarea, select, [contenteditable='true']")) return;
-      event.preventDefault();
-      editor.removeAnnotation(selectedAnnotationId);
-      setSelectedAnnotationId(null);
+      if ((event.key === "Delete" || event.key === "Backspace") && selectedAnnotationIds.size) {
+        event.preventDefault();
+        editor.removeAnnotations([...selectedAnnotationIds]);
+        selectAnnotation(null);
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c" && selectedAnnotationIds.size) {
+        event.preventDefault();
+        annotationClipboard.current = editor.annotations.filter((annotation) => selectedAnnotationIds.has(annotation.id));
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v" && annotationClipboard.current.length) {
+        event.preventDefault();
+        const duplicates = editor.duplicateAnnotations(annotationClipboard.current.map((annotation) => annotation.id));
+        if (duplicates.length) {
+          setSelectedAnnotationId(duplicates[0].id);
+          setSelectedAnnotationIds(new Set(duplicates.map((annotation) => annotation.id)));
+        }
+      }
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key) && selectedAnnotationIds.size) {
+        event.preventDefault();
+        const step = event.shiftKey ? 0.02 : 0.0025;
+        const dx = event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
+        const dy = event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0;
+        editor.updateAnnotations(editor.annotations.filter((annotation) => selectedAnnotationIds.has(annotation.id)).map((annotation) => {
+          if (annotation.kind === "pen" || annotation.kind === "highlight") {
+            return { id: annotation.id, updates: { points: annotation.points.map((point) => ({ x: Math.max(0, Math.min(1, point.x + dx)), y: Math.max(0, Math.min(1, point.y + dy)) })) } };
+          }
+          return { id: annotation.id, updates: { x: Math.max(0, Math.min(1 - (annotation.kind === "image" || annotation.kind === "redaction" ? annotation.width : 0), annotation.x + dx)), y: Math.max(0, Math.min(1 - (annotation.kind === "image" || annotation.kind === "redaction" ? annotation.height : 0), annotation.y + dy)) } };
+        }), "Move selected annotations");
+      }
     };
-    window.addEventListener("keydown", handleDeleteAnnotation);
-    return () => window.removeEventListener("keydown", handleDeleteAnnotation);
-  }, [editor, selectedAnnotationId]);
+    window.addEventListener("keydown", handleAnnotationShortcuts);
+    return () => window.removeEventListener("keydown", handleAnnotationShortcuts);
+  }, [editor, selectAnnotation, selectedAnnotationIds]);
 
   useEffect(() => {
     if (
@@ -820,6 +870,7 @@ export default function App() {
       !editor.annotations.some((annotation) => annotation.id === selectedAnnotationId)
     ) {
       setSelectedAnnotationId(null);
+      setSelectedAnnotationIds(new Set());
     }
   }, [editor.annotations, selectedAnnotationId]);
 
@@ -891,6 +942,12 @@ export default function App() {
         setLoadingStage(`Preparing pages ${end} of ${openedDocument.numPages}…`);
         setLoadingProgress(0.25 + (end / openedDocument.numPages) * 0.75);
       }
+      try {
+        setFormWidgets(await detectFormWidgets(loadedPages));
+      } catch {
+        // Some malformed PDFs expose pages but not usable widget annotations.
+        setFormWidgets([]);
+      }
       setLoadingProgress(1);
     } catch (cause) {
       if (generation !== renderGeneration.current) return;
@@ -921,6 +978,9 @@ export default function App() {
     setError(null);
     setPasswordProtected(false);
     setFormsFlattened(false);
+    setFormWidgets([]);
+    setFormDrafts({});
+    selectAnnotation(null);
     setMetadataSanitized(false);
     if (isTauri()) {
       const windowLabel = getCurrentWebview().label;
@@ -944,7 +1004,7 @@ export default function App() {
     pageSelectionAnchor.current = 1;
     setZoom(preferences.zoom);
     setViewMode(preferences.viewMode);
-  }, [editor.load, preferences.viewMode, preferences.zoom]);
+  }, [editor.load, preferences.viewMode, preferences.zoom, selectAnnotation]);
 
   const readAndLoadPdf = useCallback(async (path: string) => {
     const normalizedPath = normalizeLocalPath(path);
@@ -1499,10 +1559,15 @@ export default function App() {
     const shouldFlatten = preferences.flattenAnnotations || hasRedactions;
     const prepared = shouldFlatten ? await editor.flattened() : editor.bytes;
     if (!prepared) return null;
+    const withForms = await applyPdfFormUpdates(
+      prepared,
+      Object.values(formDrafts),
+      formsFlattened
+    );
     return hasRedactions
-      ? rasterizeForSecureRedaction(prepared, redactedPages)
-      : prepared;
-  }, [editor, preferences.flattenAnnotations]);
+      ? rasterizeForSecureRedaction(withForms, redactedPages)
+      : withForms;
+  }, [editor, formDrafts, formsFlattened, preferences.flattenAnnotations]);
 
   const savePdf = useCallback(async (
     forceSaveAs = false,
@@ -1522,6 +1587,7 @@ export default function App() {
         downloadBytes(bytes, requestedName);
         setFileName(requestedName);
         editor.markSaved();
+        setFormDrafts({});
         void clearRecovery(recoveryId)
           .then(refreshRecoverySnapshots)
           .catch(() => undefined);
@@ -1549,6 +1615,7 @@ export default function App() {
       setSourcePath(path);
       setFileName(baseName(path));
       editor.markSaved();
+      setFormDrafts({});
       void clearRecovery(recoveryId)
         .then(refreshRecoverySnapshots)
         .catch(() => undefined);
@@ -1939,10 +2006,17 @@ export default function App() {
     }
   }, [editor, mergeCandidates]);
 
-  const flattenDocumentForms = useCallback(async () => {
-    await editor.flattenForms();
+  const flattenDocumentForms = useCallback(() => {
     setFormsFlattened(true);
-  }, [editor]);
+    setSuccessMessage("Form fields will be converted to permanent page content when you save.");
+  }, []);
+
+  const commitFormField = useCallback((field: FormWidget, value: string | boolean | string[]) => {
+    setFormDrafts((current) => ({
+      ...current,
+      [field.name]: { name: field.name, kind: field.kind, value }
+    }));
+  }, []);
 
   const sanitizeDocumentMetadata = useCallback(async () => {
     await editor.sanitize();
@@ -2776,7 +2850,7 @@ export default function App() {
           onClose={() => setSearchOpen(false)}
         />
       )}
-      <main className="flex min-h-0 flex-1">
+      <main className="relative flex min-h-0 flex-1">
         {sidebarOpen && (
           <aside
             className="sidebar-panel flex shrink-0 flex-col bg-panel"
@@ -2895,6 +2969,10 @@ export default function App() {
                     scale={zoom}
                     onVisible={setCurrentPage}
                     annotations={editor.annotations.filter((annotation) => annotation.page === page.pageNumber)}
+                    formFields={formWidgets.filter((field) => field.page === page.pageNumber).map((field) => ({
+                      ...field,
+                      value: formDrafts[field.name]?.value ?? field.value
+                    }))}
                     activeTool={activeTool}
                     onAddAnnotation={editor.addAnnotation}
                     onTextFinished={() => setActiveTool("select")}
@@ -2904,9 +2982,11 @@ export default function App() {
                     searchMatches={searchResults.filter((match) => match.page === page.pageNumber)}
                     activeSearchMatchId={searchResults[searchResultIndex]?.id ?? null}
                     selectedAnnotationId={selectedAnnotationId}
-                    onSelectAnnotation={setSelectedAnnotationId}
+                    selectedAnnotationIds={selectedAnnotationIds}
+                    onSelectAnnotation={selectAnnotation}
                     onUpdateAnnotation={editor.updateAnnotation}
                     onRemoveAnnotation={editor.removeAnnotation}
+                    onCommitFormField={commitFormField}
                     onRenderingChange={handleRenderingChange}
                   />
                 </VirtualizedPdfPage>
@@ -2966,7 +3046,7 @@ export default function App() {
           )}
         </section>
         {selectedAnnotation && activeTool === "select" && (
-          <>
+          <div className="absolute inset-y-0 right-0 z-40 flex max-w-[min(26rem,46vw)] shadow-[-14px_0_32px_rgba(0,0,0,0.28)]">
             <div
               role="separator"
               aria-label="Resize annotation properties"
@@ -2975,20 +3055,29 @@ export default function App() {
               onPointerDown={(event) => startPanelResize(event, "properties")}
             />
             <div
-              className="properties-panel shrink-0 border-l border-white/10"
+              className="properties-panel h-full shrink-0 border-l border-white/10"
               style={{ width: `${propertiesWidth}px` }}
             >
               <SelectedAnnotationToolbar
                 annotation={selectedAnnotation}
+                selectedAnnotations={editor.annotations.filter((annotation) => selectedAnnotationIds.has(annotation.id))}
                 onUpdate={editor.updateAnnotation}
+                onUpdateMany={editor.updateAnnotations}
+                onDuplicate={(ids) => {
+                  const duplicates = editor.duplicateAnnotations(ids);
+                  if (duplicates.length) {
+                    setSelectedAnnotationId(duplicates[0].id);
+                    setSelectedAnnotationIds(new Set(duplicates.map((annotation) => annotation.id)));
+                  }
+                }}
                 onMoveInStack={editor.moveAnnotationInStack}
                 onRemove={(id) => {
                   editor.removeAnnotation(id);
-                  setSelectedAnnotationId(null);
+                  selectAnnotation(null);
                 }}
               />
             </div>
-          </>
+          </div>
         )}
       </main>
       <StatusBar
@@ -2999,7 +3088,7 @@ export default function App() {
         height={currentPageDimensions?.height ?? null}
         fileSize={editor.bytes?.byteLength ?? 0}
         zoom={zoom}
-        dirty={editor.isDirty}
+        dirty={editor.isDirty || hasFormDrafts}
         protectedViewing={passwordProtected}
         activity={backgroundActivity}
         onCancelActivity={ocrRunning ? cancelOcr : undefined}

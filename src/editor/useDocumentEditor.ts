@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { PDFDocument, PDFPage } from "pdf-lib";
 import { clonePlain, createLocalId } from "../localUtils";
+import type { FormFieldKind, FormFieldValue } from "./pdfForms";
 
 let pdfLibPromise: Promise<typeof import("pdf-lib")> | null = null;
 
@@ -121,6 +122,42 @@ function standardFontFor(
   if (style.bold) return StandardFonts.HelveticaBold;
   if (style.italic) return StandardFonts.HelveticaOblique;
   return StandardFonts.Helvetica;
+}
+
+export type FormFieldUpdate = {
+  name: string;
+  kind: FormFieldKind;
+  value: FormFieldValue;
+};
+
+function setPdfFormFieldValue(pdf: PDFDocument, { name, kind, value }: FormFieldUpdate) {
+  const field = pdf.getForm().getFields().find((candidate) => candidate.getName() === name);
+  if (!field) return;
+  if (kind === "text" && typeof value === "string" && "setText" in field) {
+    (field as { setText: (text: string) => void }).setText(value);
+  } else if (kind === "checkbox" && typeof value === "boolean") {
+    const checkbox = field as unknown as { check: () => void; uncheck: () => void };
+    value ? checkbox.check() : checkbox.uncheck();
+  } else if ((kind === "dropdown" || kind === "listbox") && "select" in field) {
+    if ((value === "" || (Array.isArray(value) && !value.length)) && "clear" in field) {
+      (field as unknown as { clear: () => void }).clear();
+    } else {
+      (field as { select: (selected: string | string[]) => void }).select(value as string | string[]);
+    }
+  } else if (kind === "radio" && typeof value === "string" && "select" in field) {
+    (field as { select: (selected: string) => void }).select(value);
+  }
+}
+
+export async function applyPdfFormUpdates(source: Uint8Array, updates: FormFieldUpdate[], flatten = false) {
+  if (!updates.length && !flatten) return source;
+  const { PDFDocument } = await loadPdfLib();
+  const pdf = await PDFDocument.load(source);
+  updates.forEach((update) => setPdfFormFieldValue(pdf, update));
+  const form = pdf.getForm();
+  form.updateFieldAppearances();
+  if (flatten) form.flatten();
+  return pdf.save({ useObjectStreams: true });
 }
 
 export async function flattenPdf(
@@ -486,6 +523,9 @@ export function useDocumentEditor() {
       pdf.getForm().flatten();
     }), [transformPdf]);
 
+  const fillFormField = useCallback((name: string, kind: FormFieldKind, value: FormFieldValue) =>
+    transformPdf(`Fill ${name}`, (pdf) => setPdfFormFieldValue(pdf, { name, kind, value })), [transformPdf]);
+
   const sanitize = useCallback(() =>
     transformPdf("Sanitize metadata", (pdf) => {
       pdf.setTitle("");
@@ -508,6 +548,43 @@ export function useDocumentEditor() {
       bytes: current.bytes,
       annotations: current.annotations.filter((item) => item.id !== id),
       label: "Delete annotation"
+    });
+  }, [commit, current]);
+
+  const removeAnnotations = useCallback((ids: string[]) => {
+    if (!current || !ids.length) return;
+    const selected = new Set(ids);
+    commit({
+      bytes: current.bytes,
+      annotations: current.annotations.filter((item) => !selected.has(item.id)),
+      label: `Delete ${ids.length} annotation${ids.length === 1 ? "" : "s"}`
+    });
+  }, [commit, current]);
+
+  const duplicateAnnotations = useCallback((ids: string[]) => {
+    if (!current || !ids.length) return [] as Annotation[];
+    const selected = new Set(ids);
+    const duplicates = current.annotations.filter((item) => selected.has(item.id)).map((item) => {
+      const offset = 0.018;
+      if (item.kind === "pen" || item.kind === "highlight") return {
+        ...item, id: createLocalId(), points: item.points.map((point) => ({ x: Math.min(1, point.x + offset), y: Math.min(1, point.y + offset) }))
+      } as Annotation;
+      if (item.kind === "image" || item.kind === "redaction") {
+        return { ...item, id: createLocalId(), x: Math.min(1 - item.width, item.x + offset), y: Math.min(1 - item.height, item.y + offset) } as Annotation;
+      }
+      return { ...item, id: createLocalId(), x: Math.min(0.98, item.x + offset), y: Math.min(0.98, item.y + offset) } as Annotation;
+    });
+    commit({ bytes: current.bytes, annotations: [...current.annotations, ...duplicates], label: `Duplicate ${duplicates.length} annotation${duplicates.length === 1 ? "" : "s"}` });
+    return duplicates;
+  }, [commit, current]);
+
+  const updateAnnotations = useCallback((updates: { id: string; updates: Partial<Annotation> }[], label = "Update annotations") => {
+    if (!current || !updates.length) return;
+    const byId = new Map(updates.map((item) => [item.id, item.updates]));
+    commit({
+      bytes: current.bytes,
+      annotations: current.annotations.map((item) => byId.has(item.id) ? { ...item, ...byId.get(item.id) } as Annotation : item),
+      label
     });
   }, [commit, current]);
 
@@ -581,15 +658,19 @@ export function useDocumentEditor() {
     extract,
     addAnnotation,
     updateAnnotation,
+    updateAnnotations,
     removeAnnotation,
+    removeAnnotations,
+    duplicateAnnotations,
     moveAnnotationInStack,
     flattenForms,
+    fillFormField,
     sanitize,
     optimize,
     flattened: () => current ? flattenPdf(current.bytes, current.annotations) : null
   }), [
     addAnnotation, clear, current, duplicate, duplicatePages, extract, history, historyIndex, load, restore,
-    flattenForms, merge, mergeMany, optimize, remove, removePages, removeAnnotation, reorder, reorderPages, rotate, rotatePages,
-    sanitize, savedHistoryIndex, updateAnnotation, moveAnnotationInStack
+    fillFormField, flattenForms, merge, mergeMany, optimize, remove, removePages, removeAnnotation, reorder, reorderPages, rotate, rotatePages,
+    sanitize, savedHistoryIndex, updateAnnotation, updateAnnotations, moveAnnotationInStack, removeAnnotations, duplicateAnnotations
   ]);
 }
