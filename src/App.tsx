@@ -2090,6 +2090,12 @@ export default function App() {
     setSuccessMessage("Form fields will be converted to permanent page content when you save.");
   }, []);
 
+  const resetDocumentForms = useCallback(() => {
+    setFormDrafts({});
+    setInvalidFormNames(new Set());
+    setSuccessMessage("Form fields restored to their original PDF values.");
+  }, []);
+
   const commitFormField = useCallback((field: FormWidget, value: string | boolean | string[]) => {
     setInvalidFormNames((current) => {
       if (!current.has(field.name)) return current;
@@ -2145,6 +2151,7 @@ export default function App() {
       const viewport = firstPage.getViewport({ scale: 1 });
       const value = (key: string) =>
         typeof details[key] === "string" ? details[key] : "";
+      const structure = new TextDecoder("latin1").decode(editor.bytes);
       setDocumentInfo({
         fileName,
         pageCount: pdfDocument.numPages,
@@ -2155,13 +2162,19 @@ export default function App() {
         subject: value("Subject"),
         producer: value("Producer"),
         creator: value("Creator"),
-        encrypted: passwordProtected
+        encrypted: passwordProtected,
+        formFieldCount: new Set(formWidgets.map((field) => field.name)).size,
+        attachments: /\/EmbeddedFiles\b|\/Filespec\b/.test(structure),
+        javascript: /\/JavaScript\b|\/JS\b/.test(structure),
+        layers: /\/OCProperties\b/.test(structure),
+        permissions: /\/Perms\b/.test(structure),
+        secureRedactions: new Set(editor.annotations.filter((annotation) => annotation.kind === "redaction").map((annotation) => annotation.page)).size
       });
       setActiveDialog("document-info");
     } catch (cause) {
       setError(errorMessage(cause, "Document information could not be read."));
     }
-  }, [editor.bytes, fileName, pages, passwordProtected, pdfDocument]);
+  }, [editor.annotations, editor.bytes, fileName, formWidgets, pages, passwordProtected, pdfDocument]);
 
   const splitPdf = useCallback(() => {
     if (!documentPrepared) return;
@@ -2934,6 +2947,8 @@ export default function App() {
         onRotate={rotateSelectedPage}
         onToolChange={setActiveTool}
         onFlattenForms={flattenDocumentForms}
+        onResetForms={resetDocumentForms}
+        hasFormFields={formWidgets.length > 0}
         onOptimize={editor.optimize}
         onSanitize={sanitizeDocumentMetadata}
         onDocumentInfo={showDocumentInfo}

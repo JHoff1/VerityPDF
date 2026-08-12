@@ -25,6 +25,7 @@ export type Annotation =
       id: string;
       kind: "text";
       page: number;
+      locked?: boolean;
       x: number;
       y: number;
       text: string;
@@ -38,6 +39,7 @@ export type Annotation =
       id: string;
       kind: "pen";
       page: number;
+      locked?: boolean;
       points: Point[];
       color: string;
       width: number;
@@ -47,6 +49,7 @@ export type Annotation =
       id: string;
       kind: "highlight";
       page: number;
+      locked?: boolean;
       points: Point[];
       color: string;
       width: number;
@@ -56,16 +59,19 @@ export type Annotation =
       id: string;
       kind: "image";
       page: number;
+      locked?: boolean;
       x: number;
       y: number;
       width: number;
       height: number;
       dataUrl: string;
+      opacity?: number;
     }
   | {
       id: string;
       kind: "redaction";
       page: number;
+      locked?: boolean;
       x: number;
       y: number;
       width: number;
@@ -235,7 +241,8 @@ export async function flattenPdf(
         x: annotation.x * width,
         y: height - (annotation.y + annotation.height) * height,
         width: annotation.width * width,
-        height: annotation.height * height
+        height: annotation.height * height,
+        opacity: annotation.opacity ?? 1
       });
     }
   }

@@ -7,6 +7,8 @@ import {
   ChevronUp,
   RotateCcw,
   RotateCw,
+  Lock,
+  Unlock,
   Trash2
 } from "lucide-react";
 import type { Annotation, TextStyle } from "../editor/useDocumentEditor";
@@ -61,6 +63,27 @@ export function SelectedAnnotationToolbar({
     } else if (annotation.kind === "text") {
       onUpdate(annotation.id, { x: round(annotation.x), y: round(annotation.y) }, "Snap annotation to grid");
     }
+  };
+  const distribute = (axis: "horizontal" | "vertical") => {
+    const items = selectedAnnotations
+      .filter((item) => item.kind === "text" || item.kind === "image" || item.kind === "redaction")
+      .sort((left, right) => axis === "horizontal" ? left.x - right.x : left.y - right.y);
+    if (items.length < 3) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    const firstSize = first.kind === "image" || first.kind === "redaction" ? (axis === "horizontal" ? first.width : first.height) : 0;
+    const lastSize = last.kind === "image" || last.kind === "redaction" ? (axis === "horizontal" ? last.width : last.height) : 0;
+    const start = axis === "horizontal" ? first.x + firstSize : first.y + firstSize;
+    const end = axis === "horizontal" ? last.x : last.y;
+    const itemSizes = items.slice(1, -1).reduce((total, item) => total + (item.kind === "image" || item.kind === "redaction" ? (axis === "horizontal" ? item.width : item.height) : 0), 0);
+    const gap = (end - start - itemSizes) / (items.length - 1);
+    let cursor = start + gap;
+    onUpdateMany(items.slice(1, -1).map((item) => {
+      const size = item.kind === "image" || item.kind === "redaction" ? (axis === "horizontal" ? item.width : item.height) : 0;
+      const updates = axis === "horizontal" ? { x: cursor } : { y: cursor };
+      cursor += size + gap;
+      return { id: item.id, updates };
+    }), `Distribute ${items.length} annotations`);
   };
   return (
     <aside
@@ -245,6 +268,10 @@ export function SelectedAnnotationToolbar({
             <button type="button" className="flex h-8 items-center justify-center gap-1 rounded border border-white/10 text-[10px] text-zinc-200 hover:bg-white/10" onClick={() => onTransformImage(annotation.id, "crop-square")}><Crop size={13} /> Square</button>
           </div>
           <p className="text-[10px] leading-4 text-zinc-500">Rotate turns the image by 90°. Square crop trims equally from the longer sides and applies permanently to the annotation.</p>
+          <label className="block">
+            <span className="mb-2 flex justify-between text-[11px] text-zinc-400"><span>Opacity</span><span>{Math.round((annotation.opacity ?? 1) * 100)}%</span></span>
+            <input aria-label="Image opacity" type="range" min="10" max="100" value={Math.round((annotation.opacity ?? 1) * 100)} onChange={(event) => onUpdate(annotation.id, { opacity: Number(event.target.value) / 100 }, "Change image opacity")} className="w-full accent-orange-500" />
+          </label>
         </div>
       )}
 
@@ -261,8 +288,9 @@ export function SelectedAnnotationToolbar({
       )}
 
       <div className="mt-5 border-t border-white/10 pt-4">
+        <button type="button" aria-pressed={Boolean(annotation.locked)} className="mb-2 flex h-9 w-full items-center justify-center gap-2 rounded-md border border-white/10 text-xs font-medium text-zinc-300 hover:bg-white/10" onClick={() => onUpdate(annotation.id, { locked: !annotation.locked }, annotation.locked ? "Unlock annotation" : "Lock annotation")}>{annotation.locked ? <Unlock size={14} /> : <Lock size={14} />}{annotation.locked ? "Unlock annotation" : "Lock annotation"}</button>
         <button type="button" className="flex h-9 w-full items-center justify-center gap-2 rounded-md border border-white/10 text-xs font-medium text-zinc-300 hover:bg-white/10" onClick={() => onDuplicate(selectedAnnotations.map((item) => item.id))}><Copy size={14} />Duplicate{multiple ? ` ${selectedAnnotations.length}` : ""}</button>
-        {multiple && <div className="mt-3"><span className="mb-2 block text-[11px] font-medium text-zinc-400">Alignment guides</span><div className="grid grid-cols-3 gap-1.5">{(["left", "center", "right", "top", "middle", "bottom"] as const).map((direction) => <button key={direction} type="button" className="h-8 rounded border border-white/10 text-[10px] capitalize text-zinc-300 hover:bg-white/10" onClick={() => align(direction)}>{direction}</button>)}</div><p className="mt-2 text-[10px] leading-4 text-zinc-500">Aligns the selected text, image, and redaction annotations. Hold Ctrl/Command while clicking annotations to select more.</p></div>}
+        {multiple && <div className="mt-3"><span className="mb-2 block text-[11px] font-medium text-zinc-400">Alignment guides</span><div className="grid grid-cols-3 gap-1.5">{(["left", "center", "right", "top", "middle", "bottom"] as const).map((direction) => <button key={direction} type="button" className="h-8 rounded border border-white/10 text-[10px] capitalize text-zinc-300 hover:bg-white/10" onClick={() => align(direction)}>{direction}</button>)}</div><div className="mt-1.5 grid grid-cols-2 gap-1.5"><button type="button" className="h-8 rounded border border-white/10 text-[10px] text-zinc-300 hover:bg-white/10" onClick={() => distribute("horizontal")}>Distribute horizontally</button><button type="button" className="h-8 rounded border border-white/10 text-[10px] text-zinc-300 hover:bg-white/10" onClick={() => distribute("vertical")}>Distribute vertically</button></div><p className="mt-2 text-[10px] leading-4 text-zinc-500">Aligns or distributes selected text, image, and redaction annotations. Hold Ctrl/Command while clicking annotations to select more.</p></div>}
       </div>
 
       <div className="mt-5 border-t border-white/10 pt-4">

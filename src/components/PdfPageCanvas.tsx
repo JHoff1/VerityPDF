@@ -179,6 +179,10 @@ export function PdfPageCanvas({
     mode: "move" | "resize"
   ) => {
     if (annotation.kind === "image") return;
+    if (annotation.locked) {
+      onSelectAnnotation(annotation.id, event.ctrlKey || event.metaKey);
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     if (event.ctrlKey || event.metaKey) {
@@ -349,6 +353,10 @@ export function PdfPageCanvas({
     annotation: ImageAnnotation,
     mode: "move" | "resize"
   ) => {
+    if (annotation.locked) {
+      onSelectAnnotation(annotation.id, event.ctrlKey || event.metaKey);
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     if (event.ctrlKey || event.metaKey) {
@@ -587,7 +595,7 @@ export function PdfPageCanvas({
             return <polyline key={annotation.id} points={annotation.points.map((point) => `${point.x},${point.y}`).join(" ")} fill="none" stroke={annotation.color} strokeWidth={annotation.width / 800} opacity={annotation.opacity} strokeLinecap="round" strokeLinejoin="round" />;
           }
           if (annotation.kind === "image") {
-            return <image key={annotation.id} href={annotation.dataUrl} x={annotation.x} y={annotation.y} width={annotation.width} height={annotation.height} preserveAspectRatio="xMidYMid meet" />;
+            return <image key={annotation.id} href={annotation.dataUrl} x={annotation.x} y={annotation.y} width={annotation.width} height={annotation.height} opacity={annotation.opacity ?? 1} preserveAspectRatio="xMidYMid meet" />;
           }
           return <rect key={annotation.id} x={annotation.x} y={annotation.y} width={annotation.width} height={annotation.height} fill="black" />;
         })}

@@ -12,6 +12,12 @@ export type DocumentInfo = {
   producer: string;
   creator: string;
   encrypted: boolean;
+  formFieldCount: number;
+  attachments: boolean;
+  javascript: boolean;
+  layers: boolean;
+  permissions: boolean;
+  secureRedactions: number;
 };
 
 export function DocumentInfoDialog({
@@ -27,6 +33,7 @@ export function DocumentInfoDialog({
     ["Page size", info.pageSize],
     ["File size", info.fileSize],
     ["Encryption", info.encrypted ? "Password protected" : "Not password protected"],
+    ["Form fields", info.formFieldCount ? `${info.formFieldCount} detected` : "None detected"],
     ["Title", info.title || "Not set"],
     ["Author", info.author || "Not set"],
     ["Subject", info.subject || "Not set"],
@@ -50,6 +57,17 @@ export function DocumentInfoDialog({
           </div>
         ))}
       </dl>
+      <section className="mt-4 rounded-lg border border-amber-400/20 bg-amber-400/5 p-3">
+        <h3 className="text-xs font-semibold text-amber-100">Safety inspection</h3>
+        <p className="mt-1 text-[11px] leading-5 text-zinc-400">Basic structural signals detected locally. This is a review aid, not a forensic security guarantee.</p>
+        <ul className="mt-2 space-y-1 text-[11px] text-zinc-300">
+          <li>Attachments: {info.attachments ? "possibly present" : "not detected"}</li>
+          <li>Document JavaScript: {info.javascript ? "possibly present" : "not detected"}</li>
+          <li>Optional layers: {info.layers ? "possibly present" : "not detected"}</li>
+          <li>Permissions dictionary: {info.permissions ? "present" : "not detected"}</li>
+          <li>Secure redactions queued: {info.secureRedactions}</li>
+        </ul>
+      </section>
     </AppDialog>
   );
 }
