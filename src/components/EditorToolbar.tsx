@@ -103,8 +103,8 @@ export function EditorToolbar({
     : `${selectionCount} selected pages`;
 
   return (
-    <div className="editor-toolbar relative z-30 grid h-20 w-full shrink-0 grid-cols-[1fr_1.1fr_1.1fr_2.4fr_1.1fr_2.1fr] items-stretch overflow-visible border-b border-white/10 bg-toolbar px-1 min-[1680px]:grid-cols-[2.2fr_1.1fr_1.1fr_2.4fr_2fr_2.1fr]">
-      <div className="flex min-w-0 flex-col gap-2 border-r border-white/10 px-1.5 pb-1 pt-2 min-[1680px]:hidden">
+    <div className="editor-toolbar relative z-30 grid h-20 w-full shrink-0 grid-cols-[1fr_1.1fr_1.1fr_2.4fr_1.1fr_2.1fr] items-stretch overflow-visible border-b border-white/10 bg-toolbar px-1 min-[1920px]:grid-cols-[2.2fr_1.1fr_1.1fr_2.4fr_2fr_2.1fr]">
+      <div className="flex min-w-0 flex-col gap-2 border-r border-white/10 px-1.5 pb-1 pt-2 min-[1920px]:hidden">
         <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Page Edit</span>
         <div className="flex justify-center">
           <ToolbarDropdown label="Page Edit" tooltip="Open actions for the selected page" tooltipAlign="start" icon={<FilePlus2 size={16} />}>
@@ -116,7 +116,7 @@ export function EditorToolbar({
           </ToolbarDropdown>
         </div>
       </div>
-      <div className="hidden min-w-0 flex-col gap-2 border-r border-white/10 px-2 pb-1 pt-2 min-[1680px]:flex">
+      <div className="hidden min-w-0 flex-col gap-2 border-r border-white/10 px-2 pb-1 pt-2 min-[1920px]:flex">
         <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Page Edit</span>
         <div className="flex justify-center">
           <button data-tooltip="Append all pages from another local PDF" data-tooltip-align="start" className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void onMerge()}><FilePlus2 size={16} /> Merge</button>
@@ -155,7 +155,7 @@ export function EditorToolbar({
         </div>
       </div>
 
-      <div className="flex min-w-0 flex-col gap-2 border-r border-white/10 px-1.5 pb-1 pt-2 min-[1680px]:hidden">
+      <div className="flex min-w-0 flex-col gap-2 border-r border-white/10 px-1.5 pb-1 pt-2 min-[1920px]:hidden">
         <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-emerald-400/80">Document</span>
         <div className="flex justify-center">
           <ToolbarDropdown label="Document" tooltip="Open document-wide cleanup and export tools" icon={<FileCheck2 size={16} />}>
@@ -167,7 +167,7 @@ export function EditorToolbar({
           </ToolbarDropdown>
         </div>
       </div>
-      <div className="hidden min-w-0 flex-col gap-2 border-r border-white/10 px-2 pb-1 pt-2 min-[1680px]:flex">
+      <div className="hidden min-w-0 flex-col gap-2 border-r border-white/10 px-2 pb-1 pt-2 min-[1920px]:flex">
         <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-emerald-400/80">Document</span>
         <div className="flex justify-center">
           <button className={iconButton + " toolbar-tooltip"} disabled={!hasDocument} onClick={() => void onDocumentInfo()} data-tooltip="View local file, page, metadata, and encryption details"><Info size={16} /> Info</button>
