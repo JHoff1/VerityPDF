@@ -14,7 +14,8 @@ export function ToolbarDropdown({
   tooltipAlign = "center",
   icon,
   children,
-  className = ""
+  className = "",
+  labelClassName = "hidden min-[1200px]:inline"
 }: {
   label: string;
   tooltip: string;
@@ -22,6 +23,7 @@ export function ToolbarDropdown({
   icon: ReactNode;
   children: ReactNode;
   className?: string;
+  labelClassName?: string;
 }) {
   const detailsRef = useRef<HTMLDetailsElement>(null);
 
@@ -46,7 +48,7 @@ export function ToolbarDropdown({
     <details ref={detailsRef} className={`toolbar-dropdown relative ${className}`}>
       <summary data-tooltip={tooltip} data-tooltip-align={tooltipAlign} className={`${compactToolButton} cursor-pointer list-none`}>
         {icon}
-        <span className="hidden min-[1200px]:inline">{label}</span>
+        <span className={labelClassName}>{label}</span>
         <ChevronDown size={12} className="text-zinc-500" />
       </summary>
       <div className="absolute left-0 top-[calc(100%+6px)] z-50 min-w-44 rounded-lg border border-white/10 bg-[#202329] p-1.5 shadow-2xl">
