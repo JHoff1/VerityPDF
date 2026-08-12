@@ -15,6 +15,7 @@ import {
   FolderOpen,
   Keyboard,
   LoaderCircle,
+  PanelLeft,
   Printer,
   Save,
   Settings,
@@ -77,6 +78,8 @@ import {
 import { loadPdfRuntime } from "./lib/pdfRuntime";
 import { PrintDialog } from "./components/PrintDialog";
 import { PageThumbnail } from "./components/PageThumbnail";
+import { AnnotationLayersPanel } from "./components/AnnotationLayersPanel";
+import { ReorderPagesDialog } from "./components/ReorderPagesDialog";
 import { SelectedAnnotationToolbar } from "./components/SelectedAnnotationToolbar";
 import { PdfFormFields } from "./components/PdfFormFields";
 import { detectFormWidgets, type FormWidget } from "./editor/pdfForms";
@@ -149,7 +152,7 @@ type StoredSession = {
   scrollTop: number;
   zoom: number;
   viewMode: ViewMode;
-  sidebarTab: "pages" | "bookmarks";
+  sidebarTab: "pages" | "bookmarks" | "layers";
   sidebarOpen: boolean;
   activeTool: Tool;
   updatedAt: number;
@@ -185,7 +188,8 @@ function cloneForPdfJs(bytes: Uint8Array) {
 
 async function transformImageDataUrl(
   dataUrl: string,
-  operation: "rotate-left" | "rotate-right" | "crop-square"
+  operation: "rotate-left" | "rotate-right" | "crop-square" | "crop",
+  crop = { left: 0, top: 0, right: 1, bottom: 1 }
 ) {
   const image = new Image();
   await new Promise<void>((resolve, reject) => {
@@ -197,9 +201,15 @@ async function transformImageDataUrl(
   const sourceHeight = image.naturalHeight;
   const cropSize = Math.min(sourceWidth, sourceHeight);
   const rotates = operation === "rotate-left" || operation === "rotate-right";
+  const cropLeft = Math.max(0, Math.min(0.95, crop.left));
+  const cropTop = Math.max(0, Math.min(0.95, crop.top));
+  const cropRight = Math.max(cropLeft + 0.05, Math.min(1, crop.right));
+  const cropBottom = Math.max(cropTop + 0.05, Math.min(1, crop.bottom));
+  const croppedWidth = Math.round(sourceWidth * (cropRight - cropLeft));
+  const croppedHeight = Math.round(sourceHeight * (cropBottom - cropTop));
   const canvas = window.document.createElement("canvas");
-  canvas.width = rotates ? sourceHeight : cropSize;
-  canvas.height = rotates ? sourceWidth : cropSize;
+  canvas.width = rotates ? sourceHeight : operation === "crop" ? croppedWidth : cropSize;
+  canvas.height = rotates ? sourceWidth : operation === "crop" ? croppedHeight : cropSize;
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Canvas rendering is unavailable.");
   if (operation === "rotate-left") {
@@ -210,7 +220,7 @@ async function transformImageDataUrl(
     context.translate(canvas.width, 0);
     context.rotate(Math.PI / 2);
     context.drawImage(image, 0, 0);
-  } else {
+  } else if (operation === "crop-square") {
     context.drawImage(
       image,
       (sourceWidth - cropSize) / 2,
@@ -221,6 +231,18 @@ async function transformImageDataUrl(
       0,
       cropSize,
       cropSize
+    );
+  } else {
+    context.drawImage(
+      image,
+      Math.round(sourceWidth * cropLeft),
+      Math.round(sourceHeight * cropTop),
+      croppedWidth,
+      croppedHeight,
+      0,
+      0,
+      croppedWidth,
+      croppedHeight
     );
   }
   return { dataUrl: canvas.toDataURL("image/png"), width: canvas.width, height: canvas.height };
@@ -321,7 +343,7 @@ export default function App() {
   const [invalidFormNames, setInvalidFormNames] = useState<Set<string>>(() => new Set());
   const hasFormDrafts = Object.keys(formDrafts).length > 0;
   const [textStyle, setTextStyle] = useState<TextStyle>(preferences.textStyle);
-  const [sidebarTab, setSidebarTab] = useState<"pages" | "bookmarks">("pages");
+  const [sidebarTab, setSidebarTab] = useState<"pages" | "bookmarks" | "layers">("pages");
   const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([]);
   const [bookmarksLoading, setBookmarksLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -336,7 +358,7 @@ export default function App() {
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [preparedPageCount, setPreparedPageCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [activeDialog, setActiveDialog] = useState<"preferences" | "about-support" | "shortcuts" | "merge" | "export-summary" | "save" | "overwrite" | "split" | "split-save" | "print" | "password" | "unsaved-close" | "recovery" | "document-info" | null>(null);
+  const [activeDialog, setActiveDialog] = useState<"preferences" | "about-support" | "shortcuts" | "merge" | "export-summary" | "save" | "overwrite" | "split" | "split-save" | "print" | "password" | "unsaved-close" | "recovery" | "document-info" | "reorder-pages" | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [saveForceAs, setSaveForceAs] = useState(false);
@@ -2137,6 +2159,26 @@ export default function App() {
     }
   }, [editor, pages]);
 
+  const cropSelectedImage = useCallback(async (
+    id: string,
+    crop: { left: number; top: number; right: number; bottom: number }
+  ) => {
+    const annotation = editor.annotations.find((item) => item.id === id);
+    if (!annotation || annotation.kind !== "image") return;
+    const page = pages[annotation.page - 1];
+    if (!page) return;
+    try {
+      const transformed = await transformImageDataUrl(annotation.dataUrl, "crop", crop);
+      const viewport = page.getViewport({ scale: 1 });
+      const ratio = transformed.height / Math.max(transformed.width, 1);
+      const width = Math.min(annotation.width, 1 - annotation.x);
+      const height = Math.min(1 - annotation.y, width * ratio * viewport.width / viewport.height);
+      editor.updateAnnotation(id, { dataUrl: transformed.dataUrl, width, height }, "Crop image");
+    } catch (cause) {
+      setError(errorMessage(cause, "The image could not be cropped."));
+    }
+  }, [editor, pages]);
+
   const sanitizeDocumentMetadata = useCallback(async () => {
     await editor.sanitize();
     setMetadataSanitized(true);
@@ -2264,6 +2306,56 @@ export default function App() {
     if (!documentPrepared) return;
     void editor.rotatePages(selectedPageNumbers, amount);
   }, [documentPrepared, editor, selectedPageNumbers]);
+
+  const moveSelectedPages = useCallback((direction: "backward" | "forward" | "start" | "end") => {
+    if (!documentPrepared || !pages.length) return;
+    const first = selectedPageNumbers[0];
+    const last = selectedPageNumbers[selectedPageNumbers.length - 1];
+    const target = direction === "backward" ? first - 1
+      : direction === "forward" ? last + 1
+        : direction === "start" ? 1
+          : pages.length + 1;
+    if (target < 1 || target > pages.length + 1 || selectedPageNumbers.includes(target)) return;
+    void editor.reorderPages(selectedPageNumbers, target);
+    const movedTo = direction === "backward" ? first - 1
+      : direction === "start" ? 1
+        : direction === "end" ? pages.length - selectedPageNumbers.length + 1
+          : first + 1;
+    const nextSelection = Array.from({ length: selectedPageNumbers.length }, (_, index) => movedTo + index);
+    setSelectedPages(new Set(nextSelection));
+    setSelectedPage(nextSelection[0]);
+    setCurrentPage(nextSelection[0]);
+    pageSelectionAnchor.current = nextSelection[0];
+    window.setTimeout(() => jumpToPage(nextSelection[0]), 0);
+  }, [documentPrepared, editor, jumpToPage, pages.length, selectedPageNumbers]);
+
+  const applyPageOrder = useCallback(async (order: number[]) => {
+    const selectedOldPages = new Set(selectedPageNumbers);
+    await editor.reorderPageOrder(order);
+    const nextSelection = order.flatMap((oldPage, index) => selectedOldPages.has(oldPage) ? [index + 1] : []);
+    const nextPage = nextSelection[0] ?? 1;
+    setSelectedPages(new Set(nextSelection.length ? nextSelection : [nextPage]));
+    setSelectedPage(nextPage);
+    setCurrentPage(nextPage);
+    pageSelectionAnchor.current = nextPage;
+    window.setTimeout(() => jumpToPage(nextPage), 0);
+  }, [editor, jumpToPage, selectedPageNumbers]);
+
+  useEffect(() => {
+    const handlePageMoveShortcut = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!event.altKey || target?.matches("input, textarea, select, [contenteditable='true']")) return;
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        moveSelectedPages("backward");
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        moveSelectedPages("forward");
+      }
+    };
+    window.addEventListener("keydown", handlePageMoveShortcut);
+    return () => window.removeEventListener("keydown", handlePageMoveShortcut);
+  }, [moveSelectedPages]);
 
   const toggleSearch = useCallback(() => {
     setSearchOpen((open) => !open);
@@ -2722,6 +2814,15 @@ export default function App() {
           onClose={() => setActiveDialog(null)}
         />
       )}
+      {activeDialog === "reorder-pages" && (
+        <ReorderPagesDialog
+          pageCount={pages.length}
+          pages={pages}
+          initialSelection={selectedPageNumbers}
+          onApply={applyPageOrder}
+          onClose={() => setActiveDialog(null)}
+        />
+      )}
       {activeDialog === "recovery" && pendingRecovery && (
         <RecoveryDialog
           snapshot={pendingRecovery}
@@ -2927,13 +3028,13 @@ export default function App() {
       <EditorToolbar
         pageCount={pdfDocument?.numPages ?? 0}
         selectionCount={selectedPageNumbers.length}
+        selectedPages={selectedPageNumbers}
         documentPrepared={documentPrepared}
         hasDocument={Boolean(pdfDocument)}
         passwordProtected={passwordProtected}
         canUndo={editor.canUndo}
         canRedo={editor.canRedo}
         activeTool={activeTool}
-        sidebarOpen={sidebarOpen}
         searchOpen={searchOpen}
         zoom={zoom}
         viewMode={viewMode}
@@ -2941,7 +3042,8 @@ export default function App() {
         onSplit={splitPdf}
         onDuplicate={duplicateSelectedPage}
         onDelete={deleteSelectedPage}
-        onToggleSidebar={() => setSidebarOpen((value) => !value)}
+        onMovePages={moveSelectedPages}
+        onReorder={() => setActiveDialog("reorder-pages")}
         onUndo={editor.undo}
         onRedo={editor.redo}
         onRotate={rotateSelectedPage}
@@ -2961,11 +3063,11 @@ export default function App() {
       />
 
       {activeTool === "text" && pdfDocument && (
-        <div className="grid h-11 shrink-0 grid-cols-[1fr_1.1fr_1.1fr_5.6fr] border-b border-orange-500/15 bg-[#202329] px-1 min-[1680px]:grid-cols-[2.2fr_1.1fr_1.1fr_6.5fr]">
+        <div className="grid h-11 shrink-0 grid-cols-[1.7fr_0.75fr_0.75fr_2.1fr_1.55fr_1.2fr] border-b border-orange-500/15 bg-[#202329] px-1 min-[1800px]:grid-cols-[1.65fr_0.65fr_0.7fr_2fr_1.85fr_1.05fr] min-[2200px]:grid-cols-[2.2fr_1.1fr_1.1fr_2.4fr_2fr_2.1fr]">
           <div className="col-span-3" aria-hidden="true" />
           <div
             data-testid="text-formatting-controls"
-            className="flex min-w-0 items-center gap-2 border-l border-orange-500/15 px-3"
+            className="col-span-3 flex min-w-0 items-center gap-2 border-l border-orange-500/15 px-3"
           >
             <Type size={15} className="shrink-0 text-orange-300" />
             <span className="mr-1 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-orange-300/70">Text</span>
@@ -3001,9 +3103,22 @@ export default function App() {
             className="sidebar-panel flex shrink-0 flex-col bg-panel"
             style={{ width: `${sidebarWidth}px` }}
           >
-            <div className="grid grid-cols-2 border-b border-white/10">
-              <button className={`flex h-10 items-center justify-center gap-1.5 text-xs ${sidebarTab === "pages" ? "border-b-2 border-accent text-white" : "text-zinc-500"}`} onClick={() => setSidebarTab("pages")}><FilePlus2 size={14} /> Pages</button>
-              <button className={`flex h-10 items-center justify-center gap-1.5 text-xs ${sidebarTab === "bookmarks" ? "border-b-2 border-accent text-white" : "text-zinc-500"}`} onClick={() => setSidebarTab("bookmarks")}><BookOpen size={14} /> Bookmarks</button>
+            <div className="border-b border-white/10">
+              <div className="flex h-8 items-center justify-between border-b border-white/5 px-2.5">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Navigation</span>
+                <button
+                  aria-label="Hide navigation pane"
+                  className="toolbar-tooltip flex h-6 w-7 items-center justify-center rounded text-zinc-500 transition hover:bg-white/5 hover:text-white"
+                  data-tooltip="Hide navigation pane"
+                  data-tooltip-align="start"
+                  onClick={() => setSidebarOpen(false)}
+                ><PanelLeft size={15} /></button>
+              </div>
+              <div className="space-y-0.5 p-1.5">
+                <button className={`flex h-8 w-full items-center gap-2 rounded px-2 text-left text-xs transition ${sidebarTab === "pages" ? "bg-white/10 text-white" : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300"}`} onClick={() => setSidebarTab("pages")}><FilePlus2 size={14} /> Pages</button>
+                <button className={`flex h-8 w-full items-center gap-2 rounded px-2 text-left text-xs transition ${sidebarTab === "bookmarks" ? "bg-white/10 text-white" : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300"}`} onClick={() => setSidebarTab("bookmarks")}><BookOpen size={14} /> Bookmarks</button>
+                <button className={`flex h-8 w-full items-center gap-2 rounded px-2 text-left text-xs transition ${sidebarTab === "layers" ? "bg-white/10 text-white" : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300"}`} onClick={() => setSidebarTab("layers")}><Type size={14} /> Layers</button>
+              </div>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-3">
               {sidebarTab === "pages" ? (
@@ -3031,6 +3146,20 @@ export default function App() {
                     pageSelectionAnchor.current = nextSelection[0];
                   }} />)}
                 </div>
+              ) : sidebarTab === "layers" ? (
+                <AnnotationLayersPanel
+                  annotations={editor.annotations.filter((annotation) => annotation.page === currentPage)}
+                  selectedIds={selectedAnnotationIds}
+                  onSelect={(id, additive) => {
+                    setActiveTool("select");
+                    selectAnnotation(id, additive);
+                  }}
+                  onToggleLock={(annotation) => editor.updateAnnotation(annotation.id, { locked: !annotation.locked }, annotation.locked ? "Unlock annotation" : "Lock annotation")}
+                  onRemove={(id) => {
+                    editor.removeAnnotation(id);
+                    if (selectedAnnotationIds.has(id)) selectAnnotation(null);
+                  }}
+                />
               ) : (
                 <BookmarksPanel
                   bookmarks={bookmarks}
@@ -3049,6 +3178,17 @@ export default function App() {
             className="panel-resizer relative z-20 w-1 shrink-0 cursor-col-resize bg-transparent transition hover:bg-orange-400/50"
             onPointerDown={(event) => startPanelResize(event, "sidebar")}
           />
+        )}
+        {!sidebarOpen && (
+          <aside className="flex w-11 shrink-0 items-start justify-center border-r border-white/10 bg-panel pt-3">
+            <button
+              aria-label="Show navigation pane"
+              className="toolbar-tooltip flex h-9 w-9 items-center justify-center rounded-md text-zinc-400 transition hover:bg-white/10 hover:text-white"
+              data-tooltip="Show navigation pane"
+              data-tooltip-align="start"
+              onClick={() => setSidebarOpen(true)}
+            ><PanelLeft size={17} /></button>
+          </aside>
         )}
 
         <section className="relative flex min-w-0 flex-1 flex-col bg-workspace">
@@ -3218,6 +3358,7 @@ export default function App() {
                 }}
                 onMoveInStack={editor.moveAnnotationInStack}
                 onTransformImage={(id, operation) => void transformSelectedImage(id, operation)}
+                onCropImage={(id, crop) => void cropSelectedImage(id, crop)}
                 onRemove={(id) => {
                   editor.removeAnnotation(id);
                   selectAnnotation(null);

@@ -577,6 +577,30 @@ export function useDocumentEditor() {
     });
   }, [commit, current]);
 
+  const reorderPageOrder = useCallback(async (order: number[]) => {
+    if (!current) return;
+    const { PDFDocument } = await loadPdfLib();
+    const source = await PDFDocument.load(current.bytes);
+    const pageCount = source.getPageCount();
+    const unique = new Set(order);
+    if (order.length !== pageCount || unique.size !== pageCount || order.some((page) => page < 1 || page > pageCount)) {
+      throw new Error("The requested page order is invalid.");
+    }
+    if (order.every((page, index) => page === index + 1)) return;
+    const output = await PDFDocument.create();
+    const copies = await output.copyPages(source, order.map((page) => page - 1));
+    copies.forEach((page) => output.addPage(page));
+    const newPageByOldPage = new Map(order.map((oldPage, index) => [oldPage, index + 1]));
+    commit({
+      bytes: await output.save({ useObjectStreams: true }),
+      annotations: current.annotations.map((item) => ({
+        ...item,
+        page: newPageByOldPage.get(item.page) ?? item.page
+      } as Annotation)),
+      label: "Reorder pages"
+    });
+  }, [commit, current]);
+
   const removeAnnotations = useCallback((ids: string[]) => {
     if (!current || !ids.length) return;
     const selected = new Set(ids);
@@ -679,6 +703,7 @@ export function useDocumentEditor() {
     duplicatePages,
     reorder,
     reorderPages,
+    reorderPageOrder,
     merge,
     mergeMany,
     extract,
@@ -696,7 +721,7 @@ export function useDocumentEditor() {
     flattened: () => current ? flattenPdf(current.bytes, current.annotations) : null
   }), [
     addAnnotation, clear, current, duplicate, duplicatePages, extract, history, historyIndex, load, restore,
-    fillFormField, flattenForms, merge, mergeMany, optimize, remove, removePages, removeAnnotation, reorder, reorderPages, rotate, rotatePages,
+    fillFormField, flattenForms, merge, mergeMany, optimize, remove, removePages, removeAnnotation, reorder, reorderPages, reorderPageOrder, rotate, rotatePages,
     sanitize, savedHistoryIndex, updateAnnotation, updateAnnotations, moveAnnotationInStack, removeAnnotations, duplicateAnnotations
   ]);
 }

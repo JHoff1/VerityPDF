@@ -11,7 +11,10 @@ import {
   Unlock,
   Trash2
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { Annotation, TextStyle } from "../editor/useDocumentEditor";
+
+type CropRect = { left: number; top: number; right: number; bottom: number };
 
 export function SelectedAnnotationToolbar({
   annotation,
@@ -21,7 +24,8 @@ export function SelectedAnnotationToolbar({
   onDuplicate,
   onRemove,
   onMoveInStack,
-  onTransformImage
+  onTransformImage,
+  onCropImage
 }: {
   annotation: Annotation;
   selectedAnnotations: Annotation[];
@@ -34,7 +38,10 @@ export function SelectedAnnotationToolbar({
     direction: "forward" | "backward" | "front" | "back"
   ) => void;
   onTransformImage: (id: string, operation: "rotate-left" | "rotate-right" | "crop-square") => void;
+  onCropImage: (id: string, crop: CropRect) => void;
 }) {
+  const [crop, setCrop] = useState<CropRect>({ left: 0, top: 0, right: 1, bottom: 1 });
+  useEffect(() => setCrop({ left: 0, top: 0, right: 1, bottom: 1 }), [annotation.id]);
   const multiple = selectedAnnotations.length > 1;
   const align = (axis: "left" | "right" | "top" | "bottom" | "center" | "middle") => {
     const items = selectedAnnotations.filter((item) => item.kind === "text" || item.kind === "image" || item.kind === "redaction");
@@ -268,6 +275,15 @@ export function SelectedAnnotationToolbar({
             <button type="button" className="flex h-8 items-center justify-center gap-1 rounded border border-white/10 text-[10px] text-zinc-200 hover:bg-white/10" onClick={() => onTransformImage(annotation.id, "crop-square")}><Crop size={13} /> Square</button>
           </div>
           <p className="text-[10px] leading-4 text-zinc-500">Rotate turns the image by 90°. Square crop trims equally from the longer sides and applies permanently to the annotation.</p>
+          <div className="border-t border-white/10 pt-3">
+            <div className="mb-2 flex items-center justify-between"><span className="font-medium text-zinc-300">Custom crop</span><button type="button" className="text-[10px] text-orange-300 hover:text-orange-200" onClick={() => setCrop({ left: 0, top: 0, right: 1, bottom: 1 })}>Reset</button></div>
+            <div className="relative mx-auto h-24 max-w-44 overflow-hidden rounded border border-white/15 bg-black/30"><div className="absolute border-2 border-orange-400 bg-orange-400/10" style={{ left: `${crop.left * 100}%`, top: `${crop.top * 100}%`, width: `${(crop.right - crop.left) * 100}%`, height: `${(crop.bottom - crop.top) * 100}%` }} /></div>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              {(["left", "top", "right", "bottom"] as const).map((edge) => <label key={edge} className="text-[10px] capitalize text-zinc-500">{edge}<input aria-label={`Crop ${edge}`} type="range" min={edge === "right" || edge === "bottom" ? 5 : 0} max={edge === "left" || edge === "top" ? 95 : 100} value={Math.round(crop[edge] * 100)} onChange={(event) => { const value = Number(event.target.value) / 100; setCrop((current) => ({ ...current, [edge]: edge === "left" ? Math.min(value, current.right - 0.05) : edge === "top" ? Math.min(value, current.bottom - 0.05) : edge === "right" ? Math.max(value, current.left + 0.05) : Math.max(value, current.top + 0.05) })); }} className="mt-1 block w-full accent-orange-500" /></label>)}
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-1"><button type="button" className="h-7 rounded border border-white/10 text-[10px] hover:bg-white/10" onClick={() => setCrop({ left: 0, top: 0.125, right: 1, bottom: 0.875 })}>16:9</button><button type="button" className="h-7 rounded border border-white/10 text-[10px] hover:bg-white/10" onClick={() => setCrop({ left: 0.125, top: 0, right: 0.875, bottom: 1 })}>3:4</button><button type="button" className="h-7 rounded border border-white/10 text-[10px] hover:bg-white/10" onClick={() => setCrop({ left: 0.1, top: 0.1, right: 0.9, bottom: 0.9 })}>1:1</button></div>
+            <button type="button" className="mt-2 flex h-8 w-full items-center justify-center gap-1 rounded bg-orange-500/20 text-[10px] font-medium text-orange-100 hover:bg-orange-500/30" onClick={() => onCropImage(annotation.id, crop)}><Crop size={13} /> Apply crop</button>
+          </div>
           <label className="block">
             <span className="mb-2 flex justify-between text-[11px] text-zinc-400"><span>Opacity</span><span>{Math.round((annotation.opacity ?? 1) * 100)}%</span></span>
             <input aria-label="Image opacity" type="range" min="10" max="100" value={Math.round((annotation.opacity ?? 1) * 100)} onChange={(event) => onUpdate(annotation.id, { opacity: Number(event.target.value) / 100 }, "Change image opacity")} className="w-full accent-orange-500" />

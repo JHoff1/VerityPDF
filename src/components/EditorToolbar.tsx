@@ -1,13 +1,15 @@
 import {
   Copy,
+  ChevronsLeft,
+  ChevronsRight,
   FileCheck2,
   FilePlus2,
   Highlighter,
   ImagePlus,
   Info,
+  ListOrdered,
   Minimize2,
   MousePointer2,
-  PanelLeft,
   PenLine,
   Redo2,
   RotateCcw,
@@ -35,13 +37,13 @@ type Action = () => void | Promise<void>;
 export function EditorToolbar({
   pageCount,
   selectionCount,
+  selectedPages,
   documentPrepared,
   hasDocument,
   passwordProtected,
   canUndo,
   canRedo,
   activeTool,
-  sidebarOpen,
   searchOpen,
   zoom,
   viewMode,
@@ -49,7 +51,8 @@ export function EditorToolbar({
   onSplit,
   onDuplicate,
   onDelete,
-  onToggleSidebar,
+  onMovePages,
+  onReorder,
   onUndo,
   onRedo,
   onRotate,
@@ -66,13 +69,13 @@ export function EditorToolbar({
 }: {
   pageCount: number;
   selectionCount: number;
+  selectedPages: number[];
   documentPrepared: boolean;
   hasDocument: boolean;
   passwordProtected: boolean;
   canUndo: boolean;
   canRedo: boolean;
   activeTool: Tool;
-  sidebarOpen: boolean;
   searchOpen: boolean;
   zoom: number;
   viewMode: ViewMode;
@@ -80,7 +83,8 @@ export function EditorToolbar({
   onSplit: Action;
   onDuplicate: Action;
   onDelete: Action;
-  onToggleSidebar: Action;
+  onMovePages: (direction: "backward" | "forward" | "start" | "end") => void;
+  onReorder: Action;
   onUndo: Action;
   onRedo: Action;
   onRotate: (amount: number) => void;
@@ -101,39 +105,46 @@ export function EditorToolbar({
   const selectedPagesLabel = selectionCount === 1
     ? "selected page"
     : `${selectionCount} selected pages`;
+  const pageSelectionLabel = selectionCount === 1
+    ? `Page ${selectedPages[0] ?? 1} selected`
+    : `${selectionCount} pages selected`;
 
   return (
     <div className="editor-toolbar relative z-30 grid h-20 w-full shrink-0 grid-cols-[1.7fr_0.75fr_0.75fr_2.1fr_1.55fr_1.2fr] items-stretch overflow-visible border-b border-white/10 bg-toolbar px-1 min-[1800px]:grid-cols-[1.65fr_0.65fr_0.7fr_2fr_1.85fr_1.05fr] min-[2200px]:grid-cols-[2.2fr_1.1fr_1.1fr_2.4fr_2fr_2.1fr]">
       <div className="flex min-w-0 flex-col gap-2 border-r border-white/10 px-1.5 pb-1 pt-2 min-[1800px]:hidden">
-        <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Page Edit</span>
+        <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Page Edit / {pageSelectionLabel}</span>
         <div className="flex justify-center">
           <ToolbarDropdown label="Page Edit" tooltip="Open actions for the selected page" tooltipAlign="start" icon={<FilePlus2 size={16} />}>
             <button data-tooltip="Append all pages from another local PDF" data-tooltip-align="start" className={dropdownItem} disabled={!documentPrepared} onClick={() => void onMerge()}><FilePlus2 size={15} /> Merge PDF</button>
             <button data-tooltip={`Export ${selectedPagesLabel} as a new PDF`} data-tooltip-align="start" className={dropdownItem} disabled={!documentPrepared} onClick={() => void onSplit()}><Scissors size={15} /> Split or extract</button>
             <button data-tooltip={`Make a copy of ${selectedPagesLabel}`} data-tooltip-align="start" className={dropdownItem} disabled={!documentPrepared} onClick={() => void onDuplicate()}><Copy size={15} /> Copy {selectionCount === 1 ? "page" : "pages"}</button>
             <button data-tooltip={`Remove ${selectedPagesLabel} from the document`} data-tooltip-align="start" className={dropdownItem + " text-red-300"} disabled={!documentPrepared || pageCount <= selectionCount} onClick={() => void onDelete()}><Trash2 size={15} /> Delete {selectionCount === 1 ? "page" : "pages"}</button>
-            <button data-tooltip="Show or hide page thumbnails and document bookmarks" data-tooltip-align="start" className={dropdownItem} aria-pressed={sidebarOpen} onClick={() => void onToggleSidebar()}><PanelLeft size={15} /> {sidebarOpen ? "Hide" : "Show"} navigation pane</button>
+            <button data-tooltip="Visually arrange selected pages and apply the new order" data-tooltip-align="start" className={dropdownItem} disabled={!documentPrepared || pageCount < 2} onClick={() => void onReorder()}><ListOrdered size={15} /> Organize pages</button>
+            <button data-tooltip="Move selected pages earlier in the document (Alt+Left)" data-tooltip-align="start" className={dropdownItem} disabled={!documentPrepared} onClick={() => onMovePages("backward")}><ChevronsLeft size={15} /> Move left</button>
+            <button data-tooltip="Move selected pages later in the document (Alt+Right)" data-tooltip-align="start" className={dropdownItem} disabled={!documentPrepared} onClick={() => onMovePages("forward")}><ChevronsRight size={15} /> Move right</button>
+            <button data-tooltip="Move selected pages to the beginning" data-tooltip-align="start" className={dropdownItem} disabled={!documentPrepared} onClick={() => onMovePages("start")}><ChevronsLeft size={15} /> Move to beginning</button>
+            <button data-tooltip="Move selected pages to the end" data-tooltip-align="start" className={dropdownItem} disabled={!documentPrepared} onClick={() => onMovePages("end")}><ChevronsRight size={15} /> Move to end</button>
           </ToolbarDropdown>
         </div>
       </div>
       <div className="hidden min-w-0 flex-col gap-2 border-r border-white/10 px-1.5 pb-1 pt-2 min-[1800px]:flex min-[2200px]:hidden">
-        <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Page Edit</span>
+        <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Page Edit / {pageSelectionLabel}</span>
         <div className="flex justify-center">
           <button data-tooltip="Append all pages from another local PDF" data-tooltip-align="start" className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void onMerge()}><FilePlus2 size={16} /> Merge</button>
           <button data-tooltip={`Export ${selectedPagesLabel} as a new PDF`} className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void onSplit()}><Scissors size={16} /> Split</button>
           <button data-tooltip={`Make a copy of ${selectedPagesLabel}`} className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void onDuplicate()}><Copy size={16} /> Copy</button>
           <button data-tooltip={`Remove ${selectedPagesLabel} from the document`} className={iconButton + " toolbar-tooltip text-red-300"} disabled={!documentPrepared || pageCount <= selectionCount} onClick={() => void onDelete()}><Trash2 size={16} /> Delete</button>
-          <button aria-label={`${sidebarOpen ? "Hide" : "Show"} navigation pane`} aria-pressed={sidebarOpen} data-tooltip="Show or hide page thumbnails and document bookmarks" className={compactToolButton + (sidebarOpen ? " bg-white/10 text-zinc-100" : "")} onClick={() => void onToggleSidebar()}><PanelLeft size={16} /></button>
+          <button data-tooltip="Visually arrange selected pages and apply the new order" className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared || pageCount < 2} onClick={() => void onReorder()}><ListOrdered size={16} /> Organize</button>
         </div>
       </div>
       <div className="hidden min-w-0 flex-col gap-2 border-r border-white/10 px-2 pb-1 pt-2 min-[2200px]:flex">
-        <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Page Edit</span>
+        <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Page Edit / {pageSelectionLabel}</span>
         <div className="flex justify-center">
           <button data-tooltip="Append all pages from another local PDF" data-tooltip-align="start" className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void onMerge()}><FilePlus2 size={16} /> Merge</button>
           <button data-tooltip={`Export ${selectedPagesLabel} as a new PDF`} className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void onSplit()}><Scissors size={16} /> Split</button>
           <button data-tooltip={`Make a copy of ${selectedPagesLabel}`} className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void onDuplicate()}><Copy size={16} /> Copy</button>
           <button data-tooltip={`Remove ${selectedPagesLabel} from the document`} className={iconButton + " toolbar-tooltip text-red-300"} disabled={!documentPrepared || pageCount <= selectionCount} onClick={() => void onDelete()}><Trash2 size={16} /> Delete</button>
-          <button aria-label={`${sidebarOpen ? "Hide" : "Show"} navigation pane`} aria-pressed={sidebarOpen} data-tooltip="Show or hide page thumbnails and document bookmarks" className={iconButton + (sidebarOpen ? " bg-white/10 text-zinc-100" : "")} onClick={() => void onToggleSidebar()}><PanelLeft size={16} /><span className="hidden min-[2200px]:inline">Navigation</span></button>
+          <button data-tooltip="Visually arrange selected pages and apply the new order" className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared || pageCount < 2} onClick={() => void onReorder()}><ListOrdered size={16} /> Organize</button>
         </div>
       </div>
 
@@ -171,7 +182,7 @@ export function EditorToolbar({
           <ToolbarDropdown label="Document" tooltip="Open document-wide cleanup and export tools" icon={<FileCheck2 size={16} />}>
             <button data-tooltip="View local file, page, metadata, and encryption details" className={dropdownItem} disabled={!hasDocument} onClick={() => void onDocumentInfo()}><Info size={15} /> Document info</button>
             <button data-tooltip="Restore the original values of this PDF's interactive form fields" className={dropdownItem} disabled={!hasFormFields} onClick={() => void onResetForms()}><RotateCcw size={15} /> Reset</button>
-            <button data-tooltip="Make form values permanent page content; fields can no longer be edited" className={dropdownItem} disabled={!documentPrepared} onClick={() => void onFlattenForms()}><FileCheck2 size={15} /> Flatten</button>
+            <button data-tooltip="Make form values permanent page content; fields can no longer be edited" className={dropdownItem} disabled={!documentPrepared} onClick={() => void onFlattenForms()}><FileCheck2 size={15} /> Flatten forms</button>
             <button data-tooltip="Compress PDF structure; images are unchanged, so size may not decrease" className={dropdownItem} disabled={!documentPrepared} onClick={() => void onOptimize()}><Minimize2 size={15} /> Optimize PDF</button>
             <button data-tooltip="Clear basic metadata only; attachments, scripts, layers, and comments may remain" className={dropdownItem} disabled={!documentPrepared} onClick={() => void onSanitize()}><ShieldCheck size={15} /> Sanitize metadata</button>
           </ToolbarDropdown>
