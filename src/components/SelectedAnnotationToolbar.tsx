@@ -2,8 +2,11 @@ import {
   ArrowDownToLine,
   ArrowUpToLine,
   Copy,
+  Crop,
   ChevronDown,
   ChevronUp,
+  RotateCcw,
+  RotateCw,
   Trash2
 } from "lucide-react";
 import type { Annotation, TextStyle } from "../editor/useDocumentEditor";
@@ -15,7 +18,8 @@ export function SelectedAnnotationToolbar({
   onUpdateMany,
   onDuplicate,
   onRemove,
-  onMoveInStack
+  onMoveInStack,
+  onTransformImage
 }: {
   annotation: Annotation;
   selectedAnnotations: Annotation[];
@@ -27,6 +31,7 @@ export function SelectedAnnotationToolbar({
     id: string,
     direction: "forward" | "backward" | "front" | "back"
   ) => void;
+  onTransformImage: (id: string, operation: "rotate-left" | "rotate-right" | "crop-square") => void;
 }) {
   const multiple = selectedAnnotations.length > 1;
   const align = (axis: "left" | "right" | "top" | "bottom" | "center" | "middle") => {
@@ -232,8 +237,14 @@ export function SelectedAnnotationToolbar({
       )}
 
       {annotation.kind === "image" && (
-        <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-[11px] leading-5 text-zinc-400">
-          Drag the image to move it. Use its lower-right handle to resize it while preserving its aspect ratio.
+        <div className="space-y-3 rounded-lg border border-white/10 bg-white/5 p-3 text-[11px] leading-5 text-zinc-400">
+          <p>Drag the image to move it. Use its lower-right handle to resize it while preserving its aspect ratio.</p>
+          <div className="grid grid-cols-3 gap-1.5">
+            <button type="button" className="flex h-8 items-center justify-center gap-1 rounded border border-white/10 text-[10px] text-zinc-200 hover:bg-white/10" onClick={() => onTransformImage(annotation.id, "rotate-left")}><RotateCcw size={13} /> Left</button>
+            <button type="button" className="flex h-8 items-center justify-center gap-1 rounded border border-white/10 text-[10px] text-zinc-200 hover:bg-white/10" onClick={() => onTransformImage(annotation.id, "rotate-right")}><RotateCw size={13} /> Right</button>
+            <button type="button" className="flex h-8 items-center justify-center gap-1 rounded border border-white/10 text-[10px] text-zinc-200 hover:bg-white/10" onClick={() => onTransformImage(annotation.id, "crop-square")}><Crop size={13} /> Square</button>
+          </div>
+          <p className="text-[10px] leading-4 text-zinc-500">Rotate turns the image by 90°. Square crop trims equally from the longer sides and applies permanently to the annotation.</p>
         </div>
       )}
 

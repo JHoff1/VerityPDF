@@ -183,6 +183,49 @@ function cloneForPdfJs(bytes: Uint8Array) {
   return new Uint8Array(bytes).buffer;
 }
 
+async function transformImageDataUrl(
+  dataUrl: string,
+  operation: "rotate-left" | "rotate-right" | "crop-square"
+) {
+  const image = new Image();
+  await new Promise<void>((resolve, reject) => {
+    image.onload = () => resolve();
+    image.onerror = () => reject(new Error("The image could not be transformed."));
+    image.src = dataUrl;
+  });
+  const sourceWidth = image.naturalWidth;
+  const sourceHeight = image.naturalHeight;
+  const cropSize = Math.min(sourceWidth, sourceHeight);
+  const rotates = operation === "rotate-left" || operation === "rotate-right";
+  const canvas = window.document.createElement("canvas");
+  canvas.width = rotates ? sourceHeight : cropSize;
+  canvas.height = rotates ? sourceWidth : cropSize;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Canvas rendering is unavailable.");
+  if (operation === "rotate-left") {
+    context.translate(0, canvas.height);
+    context.rotate(-Math.PI / 2);
+    context.drawImage(image, 0, 0);
+  } else if (operation === "rotate-right") {
+    context.translate(canvas.width, 0);
+    context.rotate(Math.PI / 2);
+    context.drawImage(image, 0, 0);
+  } else {
+    context.drawImage(
+      image,
+      (sourceWidth - cropSize) / 2,
+      (sourceHeight - cropSize) / 2,
+      cropSize,
+      cropSize,
+      0,
+      0,
+      cropSize,
+      cropSize
+    );
+  }
+  return { dataUrl: canvas.toDataURL("image/png"), width: canvas.width, height: canvas.height };
+}
+
 async function readLocalPdf(path: string) {
   const response = await invoke<ArrayBuffer>("read_pdf_file", { path });
   return response.slice(0);
@@ -275,6 +318,7 @@ export default function App() {
   const [selectedAnnotationIds, setSelectedAnnotationIds] = useState<Set<string>>(() => new Set());
   const [formWidgets, setFormWidgets] = useState<FormWidget[]>([]);
   const [formDrafts, setFormDrafts] = useState<Record<string, FormFieldUpdate>>({});
+  const [invalidFormNames, setInvalidFormNames] = useState<Set<string>>(() => new Set());
   const hasFormDrafts = Object.keys(formDrafts).length > 0;
   const [textStyle, setTextStyle] = useState<TextStyle>(preferences.textStyle);
   const [sidebarTab, setSidebarTab] = useState<"pages" | "bookmarks">("pages");
@@ -838,6 +882,7 @@ export default function App() {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c" && selectedAnnotationIds.size) {
         event.preventDefault();
         annotationClipboard.current = editor.annotations.filter((annotation) => selectedAnnotationIds.has(annotation.id));
+        setSuccessMessage(`${annotationClipboard.current.length} annotation${annotationClipboard.current.length === 1 ? "" : "s"} copied.`);
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v" && annotationClipboard.current.length) {
         event.preventDefault();
@@ -845,6 +890,7 @@ export default function App() {
         if (duplicates.length) {
           setSelectedAnnotationId(duplicates[0].id);
           setSelectedAnnotationIds(new Set(duplicates.map((annotation) => annotation.id)));
+          setSuccessMessage(`${duplicates.length} annotation${duplicates.length === 1 ? "" : "s"} pasted.`);
         }
       }
       if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key) && selectedAnnotationIds.size) {
@@ -1549,6 +1595,19 @@ export default function App() {
     URL.revokeObjectURL(url);
   }, []);
 
+  const missingRequiredFormNames = useMemo(() => {
+    const missing = new Set<string>();
+    for (const field of formWidgets) {
+      if (!field.required) continue;
+      const value = formDrafts[field.name]?.value ?? field.value;
+      const empty = value === false
+        || value === ""
+        || (Array.isArray(value) && value.length === 0);
+      if (empty) missing.add(field.name);
+    }
+    return missing;
+  }, [formDrafts, formWidgets]);
+
   const prepareExportBytes = useCallback(async () => {
     const redactedPages = new Set(
       editor.annotations
@@ -1577,6 +1636,11 @@ export default function App() {
       setError(
         "This encrypted PDF is open in protected viewing mode. VerityPDF will not rewrite it because doing so could corrupt its encryption."
       );
+      return false;
+    }
+    if (missingRequiredFormNames.size) {
+      setInvalidFormNames(new Set(missingRequiredFormNames));
+      setError(`Complete the required form field${missingRequiredFormNames.size === 1 ? "" : "s"} before saving: ${[...missingRequiredFormNames].join(", ")}.`);
       return false;
     }
     setSaving(true);
@@ -1628,6 +1692,7 @@ export default function App() {
     editor,
     fileName,
     passwordProtected,
+    missingRequiredFormNames,
     preferences,
     prepareExportBytes,
     recoveryId,
@@ -2012,11 +2077,45 @@ export default function App() {
   }, []);
 
   const commitFormField = useCallback((field: FormWidget, value: string | boolean | string[]) => {
+    setInvalidFormNames((current) => {
+      if (!current.has(field.name)) return current;
+      const next = new Set(current);
+      next.delete(field.name);
+      return next;
+    });
     setFormDrafts((current) => ({
       ...current,
       [field.name]: { name: field.name, kind: field.kind, value }
     }));
   }, []);
+
+  const transformSelectedImage = useCallback(async (
+    id: string,
+    operation: "rotate-left" | "rotate-right" | "crop-square"
+  ) => {
+    const annotation = editor.annotations.find((item) => item.id === id);
+    if (!annotation || annotation.kind !== "image") return;
+    const page = pages[annotation.page - 1];
+    if (!page) return;
+    try {
+      const transformed = await transformImageDataUrl(annotation.dataUrl, operation);
+      const viewport = page.getViewport({ scale: 1 });
+      const oldPhysicalWidth = annotation.width * viewport.width;
+      const oldPhysicalHeight = annotation.height * viewport.height;
+      const aspect = transformed.height / Math.max(transformed.width, 1);
+      const fitWidth = operation === "crop-square"
+        ? Math.min(oldPhysicalWidth, oldPhysicalHeight) / viewport.width
+        : oldPhysicalHeight / viewport.width;
+      const fitHeight = fitWidth * aspect * viewport.width / viewport.height;
+      const width = Math.min(fitWidth, 1);
+      const height = Math.min(fitHeight, 1);
+      const x = Math.max(0, Math.min(1 - width, annotation.x + (annotation.width - width) / 2));
+      const y = Math.max(0, Math.min(1 - height, annotation.y + (annotation.height - height) / 2));
+      editor.updateAnnotation(id, { dataUrl: transformed.dataUrl, x, y, width, height }, operation === "crop-square" ? "Crop image to square" : "Rotate image");
+    } catch (cause) {
+      setError(errorMessage(cause, "The image could not be transformed."));
+    }
+  }, [editor, pages]);
 
   const sanitizeDocumentMetadata = useCallback(async () => {
     await editor.sanitize();
@@ -2988,7 +3087,8 @@ export default function App() {
                     annotations={editor.annotations.filter((annotation) => annotation.page === page.pageNumber)}
                     formFields={formWidgets.filter((field) => field.page === page.pageNumber).map((field) => ({
                       ...field,
-                      value: formDrafts[field.name]?.value ?? field.value
+                      value: formDrafts[field.name]?.value ?? field.value,
+                      invalid: invalidFormNames.has(field.name)
                     }))}
                     activeTool={activeTool}
                     onAddAnnotation={editor.addAnnotation}
@@ -3088,6 +3188,7 @@ export default function App() {
                   }
                 }}
                 onMoveInStack={editor.moveAnnotationInStack}
+                onTransformImage={(id, operation) => void transformSelectedImage(id, operation)}
                 onRemove={(id) => {
                   editor.removeAnnotation(id);
                   selectAnnotation(null);

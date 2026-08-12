@@ -22,15 +22,16 @@ const section = (text, y) => {
   page.drawRectangle({ x: 46, y: y - 6, width: 520, height: 22, color: rgb(0.94, 0.96, 0.99) });
   page.drawText(text, { x: 56, y, size: 11, font: bold, color: orange });
 };
-const textField = (name, caption, x, y, width) => {
+const textField = (name, caption, x, y, width, required = false) => {
   label(caption, x, y + 26);
   const field = form.createTextField(name);
+  if (required) field.enableRequired();
   field.addToPage(page, { x, y, width, height: 22, ...fieldStyle });
 };
 
 section("Contact details", 680);
-textField("full_name", "Full name", 46, 630, 250);
-textField("email_address", "Email address", 316, 630, 250);
+textField("full_name", "Full name *", 46, 630, 250, true);
+textField("email_address", "Email address *", 316, 630, 250, true);
 textField("phone_number", "Phone number", 46, 575, 250);
 label("Preferred contact", 316, 601);
 const contact = form.createDropdown("preferred_contact");
@@ -38,12 +39,14 @@ contact.addOptions(["Email", "Phone", "Either"]);
 contact.addToPage(page, { x: 316, y: 575, width: 250, height: 22, ...fieldStyle });
 
 section("Request", 525);
-label("Request type", 46, 496);
+label("Request type *", 46, 496);
 const request = form.createDropdown("request_type");
 request.addOptions(["General question", "Technical support", "Feature request", "Billing"]);
+request.enableRequired();
 request.addToPage(page, { x: 46, y: 470, width: 250, height: 22, ...fieldStyle });
-label("Priority", 316, 496);
+label("Priority *", 316, 496);
 const priority = form.createRadioGroup("priority");
+priority.enableRequired();
 priority.addOptionToPage("Normal", page, { x: 318, y: 473, width: 14, height: 14, borderColor: border, borderWidth: 1, selected: true });
 page.drawText("Normal", { x: 338, y: 475, size: 10, font, color: navy });
 priority.addOptionToPage("High", page, { x: 402, y: 473, width: 14, height: 14, borderColor: border, borderWidth: 1 });

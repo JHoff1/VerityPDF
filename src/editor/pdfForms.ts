@@ -17,6 +17,7 @@ export type FormWidget = {
   readOnly: boolean;
   required: boolean;
   multiline: boolean;
+  invalid?: boolean;
 };
 
 type PdfJsWidget = {
