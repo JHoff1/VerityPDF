@@ -2460,17 +2460,34 @@ export default function App() {
           if (file && placement) {
             const reader = new FileReader();
             reader.onload = () => {
-              const id = createLocalId();
-              editor.addAnnotation({
-                id,
-                kind: "image",
-                ...placement,
-                width: 0.24,
-                height: 0.12,
-                dataUrl: String(reader.result)
-              });
-              setSelectedAnnotationId(id);
-              setActiveTool("select");
+              const dataUrl = String(reader.result);
+              const sourceImage = new Image();
+              sourceImage.onload = () => {
+                const page = pages[placement.page - 1];
+                const viewport = page?.getViewport({ scale: 1 });
+                const imageAspect = sourceImage.naturalHeight / Math.max(sourceImage.naturalWidth, 1);
+                // Annotation coordinates are normalized to the page, so convert the
+                // bitmap's physical aspect ratio into normalized page dimensions.
+                const normalizedAspect = imageAspect * ((viewport?.width ?? 1) / Math.max(viewport?.height ?? 1, 1));
+                const maxWidth = Math.min(0.24, 1 - placement.x);
+                const width = Math.min(maxWidth, (1 - placement.y) / Math.max(normalizedAspect, 0.001));
+                const height = width * normalizedAspect;
+                const id = createLocalId();
+                editor.addAnnotation({
+                  id,
+                  kind: "image",
+                  ...placement,
+                  width,
+                  height,
+                  dataUrl
+                });
+                setSelectedAnnotationId(id);
+                setActiveTool("select");
+              };
+              sourceImage.onerror = () => {
+                setError("The selected image could not be read.");
+              };
+              sourceImage.src = dataUrl;
             };
             reader.readAsDataURL(file);
           }
