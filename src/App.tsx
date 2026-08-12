@@ -898,6 +898,20 @@ export default function App() {
         const step = event.shiftKey ? 0.02 : 0.0025;
         const dx = event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
         const dy = event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0;
+        if (event.altKey) {
+          const updates = editor.annotations.flatMap((annotation) => {
+            if (!selectedAnnotationIds.has(annotation.id) || (annotation.kind !== "image" && annotation.kind !== "redaction")) return [];
+            return [{
+              id: annotation.id,
+              updates: {
+                ...(dx ? { width: Math.max(0.01, Math.min(1 - annotation.x, annotation.width + dx)) } : {}),
+                ...(dy ? { height: Math.max(0.01, Math.min(1 - annotation.y, annotation.height + dy)) } : {})
+              }
+            }];
+          });
+          editor.updateAnnotations(updates, "Resize selected annotations");
+          return;
+        }
         editor.updateAnnotations(editor.annotations.filter((annotation) => selectedAnnotationIds.has(annotation.id)).map((annotation) => {
           if (annotation.kind === "pen" || annotation.kind === "highlight") {
             return { id: annotation.id, updates: { points: annotation.points.map((point) => ({ x: Math.max(0, Math.min(1, point.x + dx)), y: Math.max(0, Math.min(1, point.y + dy)) })) } };

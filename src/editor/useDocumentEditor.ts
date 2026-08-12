@@ -170,8 +170,12 @@ export async function applyPdfFormUpdates(source: Uint8Array, updates: FormField
   const pdf = await PDFDocument.load(source);
   updates.forEach((update) => setPdfFormFieldValue(pdf, update));
   const form = pdf.getForm();
-  form.updateFieldAppearances();
-  if (flatten) form.flatten();
+  if (flatten) {
+    // Flattening needs a current appearance stream because the field widgets
+    // are about to be converted into immutable page content.
+    form.updateFieldAppearances();
+    form.flatten();
+  }
   return pdf.save({ useObjectStreams: true });
 }
 

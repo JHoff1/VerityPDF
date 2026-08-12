@@ -23,6 +23,7 @@ export function PageThumbnail({
   onMove: (from: number[], to: number) => void;
   selectedPages?: number[];
 }) {
+  const hostRef = useRef<HTMLDivElement>(null);
   const ref = useRef<HTMLCanvasElement>(null);
   const [renderActive, setRenderActive] = useState(false);
   const [rendered, setRendered] = useState(false);
@@ -32,13 +33,13 @@ export function PageThumbnail({
   }, [page]);
 
   useEffect(() => {
-    const canvas = ref.current;
-    if (!canvas) return;
+    const host = hostRef.current;
+    if (!host) return;
     const observer = new IntersectionObserver(
       ([entry]) => setRenderActive(entry.isIntersecting),
       { rootMargin: "500px 0px" }
     );
-    observer.observe(canvas);
+    observer.observe(host);
     return () => observer.disconnect();
   }, []);
 
@@ -88,21 +89,22 @@ export function PageThumbnail({
       }`}
     >
       <div
+        ref={hostRef}
         className="relative mx-auto"
         style={{
           width: `${Math.ceil(viewport.width)}px`,
           height: `${Math.ceil(viewport.height)}px`
         }}
       >
-        <canvas
+        {renderActive && <canvas
           ref={ref}
           className="block bg-white shadow-md"
           style={{
             width: `${Math.ceil(viewport.width)}px`,
             height: `${Math.ceil(viewport.height)}px`
           }}
-        />
-        {!rendered && (
+        />}
+        {(!renderActive || !rendered) && (
           <div className="absolute inset-0 flex animate-pulse items-center justify-center bg-zinc-200 text-zinc-400">
             <LoaderCircle size={14} className={renderActive ? "animate-spin" : ""} />
           </div>

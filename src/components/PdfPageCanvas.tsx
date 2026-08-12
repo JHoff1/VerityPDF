@@ -657,11 +657,11 @@ export function PdfPageCanvas({
                   >
                     <X size={13} />
                   </button>
-                  <span
-                    role="button"
+                  <button
+                    type="button"
                     aria-label={`Resize selected ${annotation.kind}`}
                     data-tooltip={`Drag to resize ${annotation.kind}`}
-                    className="pointer-events-auto absolute -bottom-1.5 -right-1.5 h-3.5 w-3.5 cursor-nwse-resize rounded-sm border-2 border-white bg-orange-500 shadow"
+                    className="pointer-events-auto absolute -bottom-2 -right-2 h-5 w-5 cursor-nwse-resize rounded-sm border-2 border-white bg-orange-500 shadow focus:outline-none focus:ring-2 focus:ring-orange-300"
                     onPointerDown={(event) => beginAnnotationGesture(event, annotation, "resize")}
                     onPointerMove={moveAnnotationGesture}
                     onPointerUp={finishAnnotationGesture}
@@ -708,11 +708,11 @@ export function PdfPageCanvas({
                   >
                     <X size={13} />
                   </button>
-                  <span
-                    role="button"
+                  <button
+                    type="button"
                     aria-label="Resize selected image"
                     data-tooltip="Drag to resize image"
-                    className="pointer-events-auto absolute -bottom-2 -right-2 h-4 w-4 cursor-nwse-resize rounded-sm border-2 border-white bg-orange-500 shadow"
+                    className="pointer-events-auto absolute -bottom-2.5 -right-2.5 h-6 w-6 cursor-nwse-resize rounded-sm border-2 border-white bg-orange-500 shadow focus:outline-none focus:ring-2 focus:ring-orange-300"
                     onPointerDown={(event) => beginImageGesture(event, annotation, "resize")}
                     onPointerMove={moveImageGesture}
                     onPointerUp={finishImageGesture}
