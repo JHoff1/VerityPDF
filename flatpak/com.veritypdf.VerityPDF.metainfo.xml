@@ -31,7 +31,7 @@
     </screenshot>
   </screenshots>
   <releases>
-    <release version="0.1.23" date="2026-08-14">
+    <release version="0.1.24" date="2026-08-14">
       <description>
         <ul>
           <li>Added Flatpak packaging with portal-based file access and no network permission.</li>

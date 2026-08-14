@@ -289,9 +289,7 @@ jobs:
 
       - name: Build sandboxed Flatpak from this release tag
         run: |
-          jq --arg tag "$GITHUB_REF_NAME" \
-            '(.modules[0].sources[] | select(.type == "git").tag) = $tag' \
-            flatpak/com.veritypdf.VerityPDF.json > flatpak/release-manifest.json
+          node scripts/prepare-flatpak-manifest.mjs "$GITHUB_REF_NAME"
           flatpak-builder --user --install --force-clean \
             --install-deps-from=flathub \
             --repo=flatpak-repo \
