@@ -32,8 +32,8 @@
         "cp flatpak/node/package-lock.json package-lock.json",
         "npm ci --offline --ignore-scripts --cache=flatpak-node/npm-cache",
         "VITE_FLATPAK_BUILD=1 npm run build",
-        "mkdir -p src-tauri/.cargo",
-        "cp flatpak/cargo-config.toml src-tauri/.cargo/config.toml",
+        "mkdir -p .cargo",
+        "cp flatpak/cargo-config.toml .cargo/config.toml",
         "CARGO_NET_OFFLINE=true cargo build --release --locked --manifest-path src-tauri/Cargo.toml",
         "install -Dm755 src-tauri/target/release/verity-pdf /app/bin/veritypdf",
         "install -Dm644 flatpak/com.veritypdf.VerityPDF.desktop /app/share/applications/com.veritypdf.VerityPDF.desktop",
@@ -44,7 +44,7 @@
         {
           "type": "git",
           "url": "https://github.com/JHoff1/VerityPDF.git",
-          "tag": "v0.1.26"
+          "tag": "v0.1.27"
         },
         {
           "type": "file",

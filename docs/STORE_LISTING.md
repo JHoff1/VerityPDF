@@ -69,7 +69,7 @@ publicly available on GitHub.
 PDF editor, PDF reader, annotate PDF, merge PDF, split PDF, offline OCR,
 redact PDF
 
-## What's new in version 0.1.26
+## What's new in version 0.1.27
 
 - New Organize Pages workspace with larger visual page previews, multi-page
   selection, direct drag-and-drop reordering, and precise move controls.
