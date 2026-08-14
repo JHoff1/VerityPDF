@@ -16,6 +16,7 @@ export function PreferencesDialog({
   preferences,
   textStyle,
   desktopPlatform,
+  flatpakBuild,
   status,
   onPreferencesChange,
   onTextStyleChange,
@@ -30,6 +31,7 @@ export function PreferencesDialog({
   preferences: AppPreferences;
   textStyle: TextStyle;
   desktopPlatform: DesktopPlatform;
+  flatpakBuild: boolean;
   status: string;
   onPreferencesChange: (preferences: AppPreferences) => void;
   onTextStyleChange: (style: TextStyle) => void;
@@ -122,9 +124,9 @@ export function PreferencesDialog({
           <div className="min-w-0 flex-1">
             <h3 className="text-sm font-semibold text-zinc-100">Privacy and local data</h3>
             <p className="mt-1 text-xs leading-5 text-zinc-400">
-              No background network requests are made. VerityPDF contacts
-              GitHub only when you choose Check for updates; documents, file
-              paths, and preferences are never included.
+              {flatpakBuild
+                ? "This Flatpak build has no network permission. Documents, file paths, and preferences stay on this computer; updates are managed by Flathub."
+                : "No background network requests are made. VerityPDF contacts GitHub only when you choose Check for updates; documents, file paths, and preferences are never included."}
             </p>
             <p className="mt-2 text-[11px] text-zinc-500">
               {preferences.recentFiles.length

@@ -144,6 +144,7 @@ const GITHUB_RELEASE_API_URL =
 const GITHUB_ISSUES_URL = "https://github.com/JHoff1/VerityPDF/issues/new";
 const PRIVACY_POLICY_URL =
   "https://github.com/JHoff1/VerityPDF/blob/main/PRIVACY.md";
+const IS_FLATPAK_BUILD = import.meta.env.VITE_FLATPAK_BUILD === "1";
 
 type StoredSession = {
   sourcePath: string;
@@ -370,7 +371,9 @@ export default function App() {
   const [mergeCandidates, setMergeCandidates] = useState<MergeCandidate[]>([]);
   const [successMessage, setSuccessMessage] = useState("");
   const [preferenceStatus, setPreferenceStatus] = useState("");
-  const [updateStatus, setUpdateStatus] = useState<UpdateCheckStatus>("idle");
+  const [updateStatus, setUpdateStatus] = useState<UpdateCheckStatus>(
+    IS_FLATPAK_BUILD ? "managed" : "idle"
+  );
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
   const [passwordValue, setPasswordValue] = useState("");
   const [passwordIncorrect, setPasswordIncorrect] = useState(false);
@@ -450,6 +453,10 @@ export default function App() {
   };
 
   const checkForUpdates = async () => {
+    if (IS_FLATPAK_BUILD) {
+      setUpdateStatus("managed");
+      return;
+    }
     if (updateStatus === "checking") return;
     setUpdateStatus("checking");
     setLatestVersion(null);
@@ -2718,6 +2725,7 @@ export default function App() {
           preferences={preferences}
           textStyle={textStyle}
           desktopPlatform={desktopPlatform}
+          flatpakBuild={IS_FLATPAK_BUILD}
           status={preferenceStatus}
           onPreferencesChange={setPreferences}
           onTextStyleChange={setTextStyle}

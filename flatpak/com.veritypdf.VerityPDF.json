@@ -1,0 +1,90 @@
+{
+  "app-id": "com.veritypdf.VerityPDF",
+  "runtime": "org.gnome.Platform",
+  "runtime-version": "48",
+  "sdk": "org.gnome.Sdk",
+  "sdk-extensions": [
+    "org.freedesktop.Sdk.Extension.node24",
+    "org.freedesktop.Sdk.Extension.rust-stable"
+  ],
+  "command": "veritypdf",
+  "finish-args": [
+    "--share=ipc",
+    "--socket=wayland",
+    "--socket=fallback-x11",
+    "--device=dri",
+    "--talk-name=org.freedesktop.portal.Desktop",
+    "--talk-name=org.freedesktop.portal.FileChooser"
+  ],
+  "modules": [
+    {
+      "name": "veritypdf",
+      "buildsystem": "simple",
+      "build-options": {
+        "append-path": "/usr/lib/sdk/node24/bin:/usr/lib/sdk/rust-stable/bin",
+        "env": {
+          "CARGO_NET_OFFLINE": "true",
+          "npm_config_offline": "true"
+        }
+      },
+      "build-commands": [
+        "cp flatpak/node/package.json package.json",
+        "cp flatpak/node/package-lock.json package-lock.json",
+        "npm ci --offline --ignore-scripts --cache=flatpak-node/npm-cache",
+        "VITE_FLATPAK_BUILD=1 npm run build",
+        "mkdir -p src-tauri/.cargo",
+        "cp flatpak/cargo-config.toml src-tauri/.cargo/config.toml",
+        "CARGO_NET_OFFLINE=true cargo build --release --locked --manifest-path src-tauri/Cargo.toml",
+        "install -Dm755 src-tauri/target/release/verity-pdf /app/bin/veritypdf",
+        "install -Dm644 flatpak/com.veritypdf.VerityPDF.desktop /app/share/applications/com.veritypdf.VerityPDF.desktop",
+        "install -Dm644 flatpak/com.veritypdf.VerityPDF.metainfo.xml /app/share/metainfo/com.veritypdf.VerityPDF.metainfo.xml",
+        "install -Dm644 flatpak/icons/com.veritypdf.VerityPDF.png /app/share/icons/hicolor/512x512/apps/com.veritypdf.VerityPDF.png"
+      ],
+      "sources": [
+        {
+          "type": "git",
+          "url": "https://github.com/JHoff1/VerityPDF.git",
+          "tag": "v0.1.23"
+        },
+        {
+          "type": "file",
+          "path": "node/package.json",
+          "dest": "flatpak/node"
+        },
+        {
+          "type": "file",
+          "path": "node/package-lock.json",
+          "dest": "flatpak/node"
+        },
+        {
+          "type": "file",
+          "path": "cargo-config.toml",
+          "dest": "flatpak"
+        },
+        {
+          "type": "file",
+          "path": "com.veritypdf.VerityPDF.desktop",
+          "dest": "flatpak"
+        },
+        {
+          "type": "file",
+          "path": "com.veritypdf.VerityPDF.metainfo.xml",
+          "dest": "flatpak"
+        },
+        {
+          "type": "file",
+          "path": "icons/com.veritypdf.VerityPDF.png",
+          "dest": "flatpak/icons"
+        },
+        {
+          "type": "file",
+          "path": "npm-sources.json"
+        },
+        {
+          "type": "file",
+          "path": "cargo-sources.json"
+        }
+      ]
+    }
+  ]
+}

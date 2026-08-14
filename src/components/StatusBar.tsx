@@ -99,6 +99,12 @@ export function StatusBar({
       ariaLabel: "Unable to check for updates; try again",
       className: "text-rose-300 hover:text-rose-200",
       icon: <CircleAlert size={12} aria-hidden="true" />
+    },
+    managed: {
+      label: "Updates via Flathub",
+      ariaLabel: "Updates are managed by Flathub",
+      className: "text-sky-300",
+      icon: <Download size={12} aria-hidden="true" />
     }
   }[updateStatus];
 
@@ -195,7 +201,7 @@ export function StatusBar({
           type="button"
           aria-label={updatePresentation.ariaLabel}
           className={`flex h-7 items-center gap-1.5 rounded-md px-2 font-medium transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 disabled:cursor-wait ${updatePresentation.className}`}
-          disabled={updateStatus === "checking"}
+          disabled={updateStatus === "checking" || updateStatus === "managed"}
           onClick={
             updateStatus === "available"
               ? onOpenLatestRelease

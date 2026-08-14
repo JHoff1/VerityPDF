@@ -46,7 +46,7 @@ plist="$copied_app/Contents/Info.plist"
 plutil -lint "$plist"
 plutil -p "$plist" >"$artifact_dir/macos-info-plist.txt"
 bundle_identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")"
-if [[ "$bundle_identifier" != "org.sovereignpdf.desktop" ]]; then
+if [[ "$bundle_identifier" != "com.veritypdf.VerityPDF" ]]; then
   echo "Unexpected bundle identifier: $bundle_identifier" >&2
   exit 1
 fi
