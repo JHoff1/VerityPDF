@@ -17,6 +17,21 @@ const [manifest, npmSources, cargoSources] = await Promise.all([
   readFile(cargoSourcesPath, "utf8").then(JSON.parse),
 ]);
 
+const normalizeFlatpakPaths = (value) => {
+  if (typeof value === "string") {
+    return value.replaceAll("\\", "/");
+  }
+  if (Array.isArray(value)) {
+    return value.map(normalizeFlatpakPaths);
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, normalizeFlatpakPaths(entry)]),
+    );
+  }
+  return value;
+};
+
 const module = manifest.modules.find((entry) => entry.name === "veritypdf");
 if (!module) {
   throw new Error("The VerityPDF Flatpak module is missing.");
@@ -31,6 +46,6 @@ gitSource.tag = tag;
 module.sources = module.sources.filter(
   (entry) => entry.path !== "npm-sources.json" && entry.path !== "cargo-sources.json",
 );
-module.sources.push(...npmSources, ...cargoSources);
+module.sources.push(...normalizeFlatpakPaths(npmSources), ...cargoSources);
 
 await writeFile(outputPath, `${JSON.stringify(manifest, null, 2)}\n`);
