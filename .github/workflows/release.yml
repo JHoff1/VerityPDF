@@ -265,62 +265,9 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  flatpak-package:
-    name: Build and validate Flatpak
-    needs: prepare-release
-    runs-on: ubuntu-24.04
-    timeout-minutes: 35
-
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v7
-
-      - name: Install Flatpak build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y flatpak flatpak-builder appstream desktop-file-utils jq
-          flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-
-      - name: Validate Flatpak metadata
-        run: |
-          appstreamcli validate flatpak/com.veritypdf.VerityPDF.metainfo.xml
-          desktop-file-validate flatpak/com.veritypdf.VerityPDF.desktop
-          jq -e '(."finish-args" | index("--share=network")) == null' flatpak/com.veritypdf.VerityPDF.json
-
-      - name: Build sandboxed Flatpak from this release tag
-        run: |
-          node scripts/prepare-flatpak-manifest.mjs "$GITHUB_REF_NAME"
-          flatpak-builder --user --install --force-clean \
-            --install-deps-from=flathub \
-            --repo=flatpak-repo \
-            flatpak-build flatpak/release-manifest.json
-
-      - name: Verify Flatpak payload and permissions
-        run: |
-          flatpak run --command=sh com.veritypdf.VerityPDF -c '
-            test -x /app/bin/veritypdf
-            test -f /app/share/applications/com.veritypdf.VerityPDF.desktop
-            test -f /app/share/metainfo/com.veritypdf.VerityPDF.metainfo.xml
-            test -f /app/share/icons/hicolor/512x512/apps/com.veritypdf.VerityPDF.png
-          '
-          ! flatpak info --show-permissions com.veritypdf.VerityPDF | grep -q 'network'
-
-      - name: Retain Flatpak build diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: veritypdf-flatpak-build-diagnostics
-          path: |
-            flatpak-build
-            flatpak/release-manifest.json
-          if-no-files-found: warn
-          retention-days: 14
-
   publish-release:
     name: Publish verified release
-    needs:
-      - build
-      - flatpak-package
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       actions: read

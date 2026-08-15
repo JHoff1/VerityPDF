@@ -3,8 +3,7 @@ export type UpdateCheckStatus =
   | "checking"
   | "current"
   | "available"
-  | "unavailable"
-  | "managed";
+  | "unavailable";
 
 type ParsedVersion = [number, number, number];
 

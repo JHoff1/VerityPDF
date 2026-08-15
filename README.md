@@ -135,15 +135,6 @@ Download the installer for your operating system from the
 The project is still in early development. Unsigned preview builds may trigger
 Windows SmartScreen or macOS Gatekeeper warnings.
 
-### Flatpak / Flathub
-
-The repository includes a reproducible Flatpak package under
-[`flatpak/`](flatpak/), using the permanent application ID
-`com.veritypdf.VerityPDF`. It is prepared for a Flathub submission. The
-Flatpak deliberately has no network permission: document access is provided by
-the desktop file chooser portal, and updates are delivered by the Flatpak
-provider rather than VerityPDF contacting GitHub.
-
 ## Development
 
 ### Prerequisites
