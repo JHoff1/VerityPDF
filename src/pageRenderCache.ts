@@ -1,4 +1,5 @@
 import type { PDFPageProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
+import { originalPage } from "./lib/pageView";
 
 type CachedPageRender = {
   canvas: HTMLCanvasElement;
@@ -17,6 +18,7 @@ export function pageRenderCacheKey(
   height: number,
   ratio: number
 ) {
+  page = originalPage(page);
   let pageId = pageRenderCacheIds.get(page);
   if (!pageId) {
     pageId = nextPageRenderCacheId;

@@ -5,6 +5,7 @@ param(
     [Parameter(Mandatory)][string]$Pdf,
     [string]$PreviousMsi,
     [string]$PreviousNsis,
+    [string]$LegacyNsis,
     [string]$ArtifactDirectory = "smoke-artifacts"
 )
 
@@ -168,6 +169,22 @@ try {
     Test-InstalledApp "nsis-current"
     Remove-NsisInstall
     Assert-AppRemoved "The NSIS uninstall"
+
+    if ($LegacyNsis) {
+        if ($env:GITHUB_ACTIONS -ne 'true') { throw 'Legacy interactive upgrade tests require a disposable CI runner.' }
+        # Match the original failure: v0.1.22 has only the sovereignpdf key.
+        # Previous scenarios may have left the new remembered path behind.
+        Remove-Item -LiteralPath 'HKCU:\Software\veritypdf\VerityPDF' -Recurse -Force -ErrorAction SilentlyContinue
+        $legacy = Start-Process -FilePath (Resolve-Path -LiteralPath $LegacyNsis).Path -ArgumentList '/S' -WindowStyle Hidden -Wait -PassThru
+        if ($legacy.ExitCode -ne 0) { throw 'Legacy v0.1.22 NSIS installation failed.' }
+        Test-InstalledApp 'nsis-legacy-0.1.22'
+        & (Join-Path $PSScriptRoot 'smoke-nsis-interactive-upgrade.ps1') -Installer $nsisPath -LogPath (Join-Path $artifactPath 'legacy-interactive-upgrade.log')
+        $expectedVersion = (Get-Content (Join-Path $PSScriptRoot '../package.json') -Raw | ConvertFrom-Json).version
+        if ((Get-VerityInstall).DisplayVersion -ne $expectedVersion) { throw 'Interactive upgrade did not install the candidate version.' }
+        Test-InstalledApp 'nsis-legacy-upgraded'
+        Remove-NsisInstall
+        Assert-AppRemoved 'The legacy-upgrade NSIS uninstall'
+    }
 }
 finally {
     try { Invoke-Msi -Label "cleanup-uninstall" -Arguments @("/x", $msiPath, "/qn", "/norestart") } catch {}

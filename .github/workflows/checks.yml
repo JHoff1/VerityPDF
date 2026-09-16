@@ -431,6 +431,18 @@ jobs:
       - name: Build MSI and NSIS installers
         run: npm run tauri -- build --bundles msi,nsis
 
+      - name: Validate NSIS upgrade-path compatibility
+        shell: pwsh
+        run: ./scripts/test-nsis-upgrade-path.ps1
+
+      - name: Download legacy v0.1.22 installer
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v0.1.22 --repo $env:GITHUB_REPOSITORY --dir legacy-installers --pattern "VerityPDF.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Legacy installer download failed." }
+
       - name: Download previous release installers
         id: previous
         shell: pwsh
@@ -470,6 +482,7 @@ jobs:
             Nsis = $nsis.FullName
             Pdf = "$env:RUNNER_TEMP\VerityPDF Installer Smoke Test.pdf"
             ArtifactDirectory = "smoke-artifacts"
+            LegacyNsis = (Resolve-Path "legacy-installers/VerityPDF.exe").Path
           }
           if (Test-Path "previous-installers/VerityPDF.msi") {
             $arguments.PreviousMsi = (Resolve-Path "previous-installers/VerityPDF.msi").Path

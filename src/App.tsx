@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -11,6 +12,7 @@ import {
   BookOpen,
   CheckCircle2,
   FileDown,
+  Images,
   FilePlus2,
   FolderOpen,
   Keyboard,
@@ -76,7 +78,10 @@ import {
   OcrStartupCanceledError
 } from "./lib/ocrStartup";
 import { loadPdfRuntime } from "./lib/pdfRuntime";
+import { documentView, numberedPage, pageViewKey } from "./lib/pageView";
 import { PrintDialog } from "./components/PrintDialog";
+import { ConversionWizard } from "./components/ConversionWizard";
+import { CompressionDialog } from "./components/CompressionDialog";
 import { PageThumbnail } from "./components/PageThumbnail";
 import { AnnotationLayersPanel } from "./components/AnnotationLayersPanel";
 import { ReorderPagesDialog } from "./components/ReorderPagesDialog";
@@ -256,7 +261,8 @@ async function readLocalPdf(path: string) {
 async function writeLocalPdfAtomically(
   path: string,
   bytes: Uint8Array,
-  approvedPath?: string
+  approvedPath?: string,
+  newOnly = false
 ) {
   const temporaryPath = await invoke<string>("prepare_atomic_pdf_write", {
     path,
@@ -264,7 +270,7 @@ async function writeLocalPdfAtomically(
   });
   try {
     await writeFile(temporaryPath, bytes);
-    await invoke("finish_atomic_pdf_write", { temporaryPath, path });
+    await invoke("finish_atomic_pdf_write", { temporaryPath, path, newOnly });
   } catch (cause) {
     await invoke("cancel_atomic_pdf_write", { temporaryPath }).catch(() => undefined);
     throw cause;
@@ -313,8 +319,15 @@ async function rasterizeForSecureRedaction(
 export default function App() {
   const editor = useDocumentEditor();
   const [preferences, setPreferences] = useState<AppPreferences>(loadPreferences);
-  const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null);
-  const [pages, setPages] = useState<PDFPageProxy[]>([]);
+  const [sourcePdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null);
+  const [sourcePages, setPages] = useState<PDFPageProxy[]>([]);
+  const pdfDocument = useMemo(() => sourcePdfDocument && editor.renderView
+    ? documentView(sourcePdfDocument, editor.renderView.indices) : sourcePdfDocument,
+  [sourcePdfDocument, editor.renderView]);
+  const pages = useMemo(() => editor.renderView
+    ? editor.renderView.indices.flatMap((sourceNumber, index) => sourcePages[sourceNumber - 1]
+      ? [numberedPage(sourcePages[sourceNumber - 1], index + 1)] : [])
+    : sourcePages, [sourcePages, editor.renderView]);
   const [pageText, setPageText] = useState<string[]>([]);
   const [pageSearchSpans, setPageSearchSpans] = useState<SearchSpan[][]>([]);
   const [textExtractionComplete, setTextExtractionComplete] = useState(false);
@@ -331,14 +344,18 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedPage, setSelectedPage] = useState(1);
   const [selectedPages, setSelectedPages] = useState<Set<number>>(
-    () => new Set([1])
+    () => new Set<number>()
   );
   const [zoom, setZoom] = useState(preferences.zoom);
   const [viewMode, setViewMode] = useState<ViewMode>(preferences.viewMode);
   const [activeTool, setActiveTool] = useState<Tool>("select");
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
   const [selectedAnnotationIds, setSelectedAnnotationIds] = useState<Set<string>>(() => new Set());
-  const [formWidgets, setFormWidgets] = useState<FormWidget[]>([]);
+  const [sourceFormWidgets, setFormWidgets] = useState<FormWidget[]>([]);
+  const formWidgets = useMemo(() => editor.renderView ? sourceFormWidgets.flatMap((field) => {
+    const index = editor.renderView!.indices.indexOf(field.page);
+    return index < 0 ? [] : [{ ...field, page: index + 1 }];
+  }) : sourceFormWidgets, [sourceFormWidgets, editor.renderView]);
   const [formDrafts, setFormDrafts] = useState<Record<string, FormFieldUpdate>>({});
   const [invalidFormNames, setInvalidFormNames] = useState<Set<string>>(() => new Set());
   const hasFormDrafts = Object.keys(formDrafts).length > 0;
@@ -354,9 +371,13 @@ export default function App() {
   const [resolvedTheme, setResolvedTheme] = useState<"dark" | "light">("dark");
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [pageOperationBusy, setPageOperationBusy] = useState(false);
+  const [conversionOpen, setConversionOpen] = useState(false);
+  const [compressionOpen, setCompressionOpen] = useState(false);
   const [loadingStage, setLoadingStage] = useState("Opening document…");
   const [loadingProgress, setLoadingProgress] = useState(0);
-  const [preparedPageCount, setPreparedPageCount] = useState(0);
+  const [sourcePreparedPageCount, setPreparedPageCount] = useState(0);
+  const preparedPageCount = editor.renderView ? pages.length : sourcePreparedPageCount;
   const [error, setError] = useState<string | null>(null);
   const [activeDialog, setActiveDialog] = useState<"preferences" | "about-support" | "shortcuts" | "merge" | "export-summary" | "save" | "overwrite" | "split" | "split-save" | "print" | "password" | "unsaved-close" | "recovery" | "document-info" | "reorder-pages" | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
@@ -491,6 +512,12 @@ export default function App() {
   };
   const pendingSessionRestore = useRef<StoredSession | null>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
+  const [loadedSourceBytes, setLoadedSourceBytes] = useState<Uint8Array | null>(null);
+  const pendingPageView = useRef<{ page: number; offset: number; left: number; before: Uint8Array | null } | null>(null);
+  const [pageNotice, setPageNotice] = useState<{ text: string; revision: unknown } | null>(null);
+  const noticePending = useRef<string | null>(null);
+  const savedPageViews = useRef(new WeakMap<Uint8Array, { page: number; offset: number; left: number }>());
+  const restoringHistoryView = useRef(false);
   const [sourcePath, setSourcePath] = useState<string | null>(null);
   const pendingImage = useRef<{ page: number; x: number; y: number } | null>(null);
   const lastRenderedBytes = useRef<Uint8Array | null>(null);
@@ -513,7 +540,7 @@ export default function App() {
     !passwordProtected &&
     pdfDocument &&
     pages.length === pdfDocument.numPages &&
-    preparedPageCount === pdfDocument.numPages
+    preparedPageCount === pdfDocument.numPages && !pageOperationBusy
   );
   const selectedAnnotation = useMemo(
     () => editor.annotations.find((annotation) => annotation.id === selectedAnnotationId) ?? null,
@@ -598,7 +625,7 @@ export default function App() {
         setSourcePath(snapshot.sourcePath);
         setCurrentPage(1);
         setSelectedPage(1);
-        setSelectedPages(new Set([1]));
+        setSelectedPages(new Set());
         setSuccessMessage(
           !migrationCompleted
             ? "Your recovered work opened. The original recovery snapshot was kept because local cleanup could not be completed."
@@ -894,6 +921,7 @@ export default function App() {
 
   useEffect(() => {
     const handleAnnotationShortcuts = (event: KeyboardEvent) => {
+      if (window.document.querySelector('[role="dialog"]')) return;
       const target = event.target as HTMLElement | null;
       if (target?.matches("input, textarea, select, [contenteditable='true']")) return;
       if ((event.key === "Delete" || event.key === "Backspace") && selectedAnnotationIds.size) {
@@ -1003,6 +1031,7 @@ export default function App() {
       });
       setPasswordProtected(openedWithPassword);
       setPages([firstPage]);
+      setLoadedSourceBytes(data);
       setPreparedPageCount(1);
       setLoadingProgress(openedDocument.numPages === 1 ? 1 : 0.25);
       setBusy(false);
@@ -1045,12 +1074,16 @@ export default function App() {
   }, [pdfDocument]);
 
   useEffect(() => {
-    if (!editor.bytes || editor.bytes === lastRenderedBytes.current) return;
-    lastRenderedBytes.current = editor.bytes;
-    void renderPdf(editor.bytes);
-  }, [editor.bytes, renderPdf]);
+    const bytes = editor.renderView?.bytes ?? editor.bytes;
+    if (!bytes || bytes === lastRenderedBytes.current) return;
+    lastRenderedBytes.current = bytes;
+    void renderPdf(bytes);
+  }, [editor.bytes, editor.renderView, renderPdf]);
 
   const loadPdf = useCallback((data: ArrayBuffer, name: string, path: string | null = null) => {
+    pendingPageView.current = null;
+    noticePending.current = null;
+    setPageNotice(null);
     setBusy(true);
     setLoadingStage(`Opening ${name}…`);
     setLoadingProgress(0.04);
@@ -1082,7 +1115,7 @@ export default function App() {
     }
     setCurrentPage(1);
     setSelectedPage(1);
-    setSelectedPages(new Set([1]));
+    setSelectedPages(new Set());
     pageSelectionAnchor.current = 1;
     setZoom(preferences.zoom);
     setViewMode(preferences.viewMode);
@@ -1150,7 +1183,7 @@ export default function App() {
     );
     setCurrentPage(restoredPage);
     setSelectedPage(restoredPage);
-    setSelectedPages(new Set([restoredPage]));
+    setSelectedPages(new Set());
     pageSelectionAnchor.current = restoredPage;
     setZoom(Math.min(4, Math.max(0.25, session.zoom)));
     setViewMode(session.viewMode);
@@ -1269,7 +1302,7 @@ export default function App() {
     return () => window.removeEventListener("sovereign:add-image", requestImage);
   }, []);
 
-  useEffect(() => () => void pdfDocument?.destroy(), [pdfDocument]);
+  useEffect(() => () => void sourcePdfDocument?.destroy(), [sourcePdfDocument]);
 
   useEffect(() => {
     if (!pdfDocument) return;
@@ -1277,7 +1310,7 @@ export default function App() {
     setCurrentPage((page) => Math.min(Math.max(1, page), pdfDocument.numPages));
     setSelectedPages((current) => {
       const valid = [...current].filter((page) => page <= pdfDocument.numPages);
-      return new Set(valid.length ? valid : [Math.min(selectedPage, pdfDocument.numPages)]);
+      return new Set(valid);
     });
   }, [pdfDocument]);
 
@@ -1298,7 +1331,11 @@ export default function App() {
           : destination;
         if (!explicitDestination?.length) return null;
         const reference = explicitDestination[0];
-        if (typeof reference === "number") return reference + 1;
+        if (typeof reference === "number") {
+          if (!editor.renderView) return reference + 1;
+          const index = editor.renderView.indices.indexOf(reference + 1);
+          return index < 0 ? null : index + 1;
+        }
         try {
           return await pdfDocument.getPageIndex(reference) + 1;
         } catch {
@@ -1329,7 +1366,7 @@ export default function App() {
   useEffect(() => {
     const workspace = workspaceRef.current;
     const page = pages[currentPage - 1];
-    if (!workspace || !page || viewMode === "custom") return;
+    if (!workspace || !page || viewMode === "custom" || pendingPageView.current) return;
 
     const updateFittedZoom = () => {
       const pageSize = page.getViewport({ scale: 1 });
@@ -1353,15 +1390,67 @@ export default function App() {
     return () => observer.disconnect();
   }, [currentPage, pages, viewMode]);
 
+  useLayoutEffect(() => {
+    const pending = pendingPageView.current;
+    if (!pending || editor.bytes === pending.before || loadedSourceBytes !== (editor.renderView?.bytes ?? editor.bytes) || !documentPrepared) return;
+    if (restoringHistoryView.current && editor.bytes) {
+      Object.assign(pending, savedPageViews.current.get(editor.bytes));
+      restoringHistoryView.current = false;
+    }
+    pending.page = Math.min(pending.page, pages.length);
+    const workspace = workspaceRef.current;
+    const target = document.getElementById(`page-${pending.page}`);
+    if (!workspace || !target) return;
+    workspace.scrollTo({ top: workspace.scrollTop + target.getBoundingClientRect().top - workspace.getBoundingClientRect().top + pending.offset, left: pending.left, behavior: "instant" });
+    setCurrentPage(pending.page);
+    // Keep the fitted zoom frozen through this render; resize/navigation can fit again.
+    requestAnimationFrame(() => { if (pendingPageView.current === pending) pendingPageView.current = null; });
+  }, [pages, documentPrepared, loadedSourceBytes, editor.bytes, editor.renderView]);
+
+  useEffect(() => {
+    if (noticePending.current && editor.bytes !== pendingPageView.current?.before) {
+      setPageNotice({ text: noticePending.current, revision: editor.revision });
+      noticePending.current = null;
+    }
+  }, [editor.revision, editor.bytes]);
+
+  const capturePageView = useCallback((mapPage: (page: number) => number = (page) => page) => {
+    const workspace = workspaceRef.current;
+    if (!workspace) return currentPage;
+    const top = workspace.getBoundingClientRect().top;
+    const visible = [...workspace.querySelectorAll<HTMLElement>("[data-virtual-page]")].find((page) => page.getBoundingClientRect().bottom > top + 32);
+    const number = Number(visible?.dataset.virtualPage ?? currentPage);
+    if (editor.bytes) savedPageViews.current.set(editor.bytes, { page: number, offset: visible ? top - visible.getBoundingClientRect().top : 0, left: workspace.scrollLeft });
+    pendingPageView.current = { page: mapPage(number), offset: visible ? top - visible.getBoundingClientRect().top : 0, left: workspace.scrollLeft, before: editor.bytes };
+    return mapPage(number);
+  }, [currentPage, editor.bytes]);
+
+  const undoWithView = useCallback(() => { if (!editor.canUndo) return; if (editor.undoBytes !== editor.bytes) { capturePageView(); restoringHistoryView.current = true; } editor.undo(); setPageNotice(null); }, [capturePageView, editor]);
+  const redoWithView = useCallback(() => { if (!editor.canRedo) return; if (editor.redoBytes !== editor.bytes) { capturePageView(); restoringHistoryView.current = true; } editor.redo(); setPageNotice(null); }, [capturePageView, editor]);
+
+  const scrollDocumentTo = useCallback((id: string, block: "start" | "center" = "start") => {
+    const workspace = workspaceRef.current;
+    const target = window.document.getElementById(id);
+    if (!workspace || !target || !workspace.contains(target)) return;
+    const viewport = workspace.getBoundingClientRect();
+    const bounds = target.getBoundingClientRect();
+    const top = workspace.scrollTop + bounds.top - viewport.top - workspace.clientTop
+      - (block === "center" ? (workspace.clientHeight - bounds.height) / 2 : 0);
+    const left = block === "center" && bounds.width < workspace.clientWidth
+      ? workspace.scrollLeft + bounds.left - viewport.left - workspace.clientLeft
+        - (workspace.clientWidth - bounds.width) / 2
+      : workspace.scrollLeft;
+    // scrollIntoView traverses every scrollable ancestor, including the app
+    // root. Keep navigation and search scrolling inside the document pane.
+    workspace.scrollTo({ top: Math.max(0, top), left: Math.max(0, left), behavior: "smooth" });
+  }, []);
+
   const jumpToPage = useCallback((pageNumber: number) => {
-    window.document
-      .getElementById(`page-${pageNumber}`)
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    scrollDocumentTo(`page-${pageNumber}`);
     setCurrentPage(pageNumber);
     setSelectedPage(pageNumber);
-    setSelectedPages(new Set([pageNumber]));
     pageSelectionAnchor.current = pageNumber;
-  }, []);
+  }, [scrollDocumentTo]);
 
   const selectedPageNumbers = useMemo(
     () => [...selectedPages].sort((left, right) => left - right),
@@ -1373,7 +1462,6 @@ export default function App() {
     modifiers: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }
   ) => {
     setSelectedPage(pageNumber);
-    setCurrentPage(pageNumber);
     if (modifiers.shiftKey) {
       const start = Math.min(pageSelectionAnchor.current, pageNumber);
       const end = Math.max(pageSelectionAnchor.current, pageNumber);
@@ -1385,19 +1473,17 @@ export default function App() {
     if (modifiers.ctrlKey || modifiers.metaKey) {
       setSelectedPages((current) => {
         const next = new Set(current);
-        if (next.has(pageNumber) && next.size > 1) next.delete(pageNumber);
+        if (next.has(pageNumber)) next.delete(pageNumber);
         else next.add(pageNumber);
         return next;
       });
       pageSelectionAnchor.current = pageNumber;
       return;
     }
-    window.document
-      .getElementById(`page-${pageNumber}`)
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
-    setSelectedPages(new Set([pageNumber]));
+    scrollDocumentTo(`page-${pageNumber}`);
+    setCurrentPage(pageNumber);
     pageSelectionAnchor.current = pageNumber;
-  }, []);
+  }, [scrollDocumentTo]);
 
   const handleRenderingChange = useCallback((pageNumber: number, rendering: boolean) => {
     setRenderingPages((current) => {
@@ -1445,15 +1531,11 @@ export default function App() {
     setSearchResultIndex(index);
     setCurrentPage(match.page);
     setSelectedPage(match.page);
-    window.document
-      .getElementById(`page-${match.page}`)
-      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    scrollDocumentTo(`page-${match.page}`, "center");
     window.setTimeout(() => {
-      window.document
-        .getElementById(`search-match-${match.id}`)
-        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      scrollDocumentTo(`search-match-${match.id}`, "center");
     }, 180);
-  }, [searchResults]);
+  }, [searchResults, scrollDocumentTo]);
 
   useEffect(() => {
     setSearchResultIndex(0);
@@ -1644,14 +1726,14 @@ export default function App() {
     return missing;
   }, [formDrafts, formWidgets]);
 
-  const prepareExportBytes = useCallback(async () => {
+  const prepareExportBytes = useCallback(async (includeAnnotations = false) => {
     const redactedPages = new Set(
       editor.annotations
         .filter((item) => item.kind === "redaction")
         .map((item) => item.page)
     );
     const hasRedactions = redactedPages.size > 0;
-    const shouldFlatten = preferences.flattenAnnotations || hasRedactions;
+    const shouldFlatten = includeAnnotations || preferences.flattenAnnotations || hasRedactions;
     const prepared = shouldFlatten ? await editor.flattened() : editor.bytes;
     if (!prepared) return null;
     const withForms = await applyPdfFormUpdates(
@@ -1783,7 +1865,7 @@ export default function App() {
     setSourcePath(snapshot.sourcePath);
     setCurrentPage(1);
     setSelectedPage(1);
-    setSelectedPages(new Set([1]));
+    setSelectedPages(new Set());
     setActiveDialog(null);
     setSuccessMessage(
       `Recovered the ${new Date(snapshot.updatedAt).toLocaleString()} snapshot of ${snapshot.fileName}.`
@@ -2096,7 +2178,7 @@ export default function App() {
       setMetadataSanitized(false);
       setMergeCandidates([]);
       setActiveDialog(null);
-      setSelectedPages(new Set([1]));
+      setSelectedPages(new Set());
       setSelectedPage(1);
       setCurrentPage(1);
       setSuccessMessage("The staged PDFs were merged in the selected order.");
@@ -2219,7 +2301,7 @@ export default function App() {
   }, [editor.annotations, editor.bytes, fileName, formWidgets, pages, passwordProtected, pdfDocument]);
 
   const splitPdf = useCallback(() => {
-    if (!documentPrepared) return;
+    if (!documentPrepared || !selectedPageNumbers.length) return;
     setSplitRanges(selectedPageNumbers.join(","));
     setSplitError("");
     setActiveDialog("split");
@@ -2284,62 +2366,71 @@ export default function App() {
     if (
       !pdfDocument ||
       !documentPrepared ||
+      !selectedPageNumbers.length ||
       pdfDocument.numPages - selectedPageNumbers.length < 1
     ) return;
-    const nextSelection = Math.min(
-      selectedPageNumbers[0],
-      pdfDocument.numPages - selectedPageNumbers.length
-    );
-    void editor.removePages(selectedPageNumbers);
-    setSelectedPage(nextSelection);
-    setCurrentPage(nextSelection);
-    setSelectedPages(new Set([nextSelection]));
-    pageSelectionAnchor.current = nextSelection;
-  }, [documentPrepared, editor, pdfDocument, selectedPageNumbers]);
+    const remaining = Array.from({ length: pdfDocument.numPages }, (_, index) => index + 1).filter((page) => !selectedPages.has(page));
+    const nextSelection = capturePageView((page) => {
+      // Choose the closest original page; prefer the following page on a tie.
+      const survivor = remaining.reduce((nearest, number) => Math.abs(number - page) <= Math.abs(nearest - page) ? number : nearest);
+      return remaining.indexOf(survivor) + 1;
+    });
+    noticePending.current = `Deleted ${selectedPageNumbers.length} ${selectedPageNumbers.length === 1 ? "page" : "pages"}`;
+    setPageOperationBusy(true);
+    void editor.removePages(selectedPageNumbers).then(() => {
+      setSelectedPage(nextSelection);
+      setCurrentPage(nextSelection);
+      setSelectedPages(new Set());
+      pageSelectionAnchor.current = nextSelection;
+    }).catch((cause) => { pendingPageView.current = null; noticePending.current = null; setError(String(cause)); }).finally(() => setPageOperationBusy(false));
+  }, [documentPrepared, editor, pdfDocument, selectedPageNumbers, selectedPages, capturePageView]);
 
   const duplicateSelectedPage = useCallback(() => {
-    if (!documentPrepared) return;
-    void editor.duplicatePages(selectedPageNumbers);
-  }, [documentPrepared, editor, selectedPageNumbers]);
+    if (!documentPrepared || !selectedPageNumbers.length) return;
+    capturePageView((page) => page + selectedPageNumbers.filter((number) => number < page).length);
+    noticePending.current = `Copied ${selectedPageNumbers.length} ${selectedPageNumbers.length === 1 ? "page" : "pages"}`;
+    setPageOperationBusy(true);
+    void editor.duplicatePages(selectedPageNumbers).catch((cause) => { pendingPageView.current = null; noticePending.current = null; setError(String(cause)); }).finally(() => setPageOperationBusy(false));
+  }, [documentPrepared, editor, selectedPageNumbers, capturePageView]);
 
   const rotateSelectedPage = useCallback((amount: number) => {
-    if (!documentPrepared) return;
-    void editor.rotatePages(selectedPageNumbers, amount);
-  }, [documentPrepared, editor, selectedPageNumbers]);
+    if (!documentPrepared || !selectedPageNumbers.length) return;
+    capturePageView();
+    noticePending.current = `Rotated ${selectedPageNumbers.length} ${selectedPageNumbers.length === 1 ? "page" : "pages"}`;
+    setPageOperationBusy(true);
+    void editor.rotatePages(selectedPageNumbers, amount).catch((cause) => { pendingPageView.current = null; noticePending.current = null; setError(String(cause)); }).finally(() => setPageOperationBusy(false));
+  }, [documentPrepared, editor, selectedPageNumbers, capturePageView]);
+
+  const applyPageOrder = useCallback(async (order: number[], oldSelection = selectedPageNumbers) => {
+    if (order.every((page, index) => page === index + 1)) return;
+    const visiblePage = capturePageView((page) => order.indexOf(page) + 1);
+    noticePending.current = "Reordered pages";
+    const selectedOldPages = new Set(oldSelection);
+    setPageOperationBusy(true);
+    try { await editor.reorderPageOrder(order); }
+    catch (cause) { pendingPageView.current = null; noticePending.current = null; throw cause; }
+    finally { setPageOperationBusy(false); }
+    const nextSelection = order.flatMap((oldPage, index) => selectedOldPages.has(oldPage) ? [index + 1] : []);
+    const nextPage = nextSelection[0] ?? 1;
+    setSelectedPages(new Set(nextSelection));
+    setSelectedPage(nextPage);
+    setCurrentPage(visiblePage);
+    pageSelectionAnchor.current = nextPage;
+  }, [editor, selectedPageNumbers, capturePageView]);
 
   const moveSelectedPages = useCallback((direction: "backward" | "forward" | "start" | "end") => {
-    if (!documentPrepared || !pages.length) return;
+    if (!documentPrepared || !pages.length || !selectedPageNumbers.length) return;
     const first = selectedPageNumbers[0];
     const last = selectedPageNumbers[selectedPageNumbers.length - 1];
     const target = direction === "backward" ? first - 1
-      : direction === "forward" ? last + 1
-        : direction === "start" ? 1
-          : pages.length + 1;
+      : direction === "forward" ? last + 2 : direction === "start" ? 1 : pages.length + 1;
     if (target < 1 || target > pages.length + 1 || selectedPageNumbers.includes(target)) return;
-    void editor.reorderPages(selectedPageNumbers, target);
-    const movedTo = direction === "backward" ? first - 1
-      : direction === "start" ? 1
-        : direction === "end" ? pages.length - selectedPageNumbers.length + 1
-          : first + 1;
-    const nextSelection = Array.from({ length: selectedPageNumbers.length }, (_, index) => movedTo + index);
-    setSelectedPages(new Set(nextSelection));
-    setSelectedPage(nextSelection[0]);
-    setCurrentPage(nextSelection[0]);
-    pageSelectionAnchor.current = nextSelection[0];
-    window.setTimeout(() => jumpToPage(nextSelection[0]), 0);
-  }, [documentPrepared, editor, jumpToPage, pages.length, selectedPageNumbers]);
-
-  const applyPageOrder = useCallback(async (order: number[]) => {
-    const selectedOldPages = new Set(selectedPageNumbers);
-    await editor.reorderPageOrder(order);
-    const nextSelection = order.flatMap((oldPage, index) => selectedOldPages.has(oldPage) ? [index + 1] : []);
-    const nextPage = nextSelection[0] ?? 1;
-    setSelectedPages(new Set(nextSelection.length ? nextSelection : [nextPage]));
-    setSelectedPage(nextPage);
-    setCurrentPage(nextPage);
-    pageSelectionAnchor.current = nextPage;
-    window.setTimeout(() => jumpToPage(nextPage), 0);
-  }, [editor, jumpToPage, selectedPageNumbers]);
+    const remaining = pages.map((page) => page.pageNumber).filter((page) => !selectedPages.has(page));
+    const index = remaining.findIndex((page) => page >= target);
+    const insertion = index < 0 ? remaining.length : index;
+    const order = [...remaining.slice(0, insertion), ...selectedPageNumbers, ...remaining.slice(insertion)];
+    void applyPageOrder(order).catch((cause) => setError(String(cause)));
+  }, [documentPrepared, pages, selectedPageNumbers, selectedPages, applyPageOrder]);
 
   useEffect(() => {
     const handlePageMoveShortcut = (event: KeyboardEvent) => {
@@ -2474,6 +2565,7 @@ export default function App() {
 
   useEffect(() => {
     const handleAppShortcut = (event: KeyboardEvent) => {
+      if (activeDialog || conversionOpen || compressionOpen || pageOperationBusy) return;
       const target = event.target as HTMLElement | null;
       const editing = Boolean(
         target?.matches("input, textarea, select, [contenteditable='true']")
@@ -2509,13 +2601,13 @@ export default function App() {
       }
       if (command && key === "z") {
         event.preventDefault();
-        if (event.shiftKey) void editor.redo();
-        else void editor.undo();
+        if (event.shiftKey) redoWithView();
+        else undoWithView();
         return;
       }
       if (command && key === "y") {
         event.preventDefault();
-        void editor.redo();
+        redoWithView();
         return;
       }
       if (command && (key === "0" || key === "1")) {
@@ -2536,9 +2628,8 @@ export default function App() {
         setSelectedAnnotationId(null);
         setActiveTool("select");
         setSearchOpen(false);
-        setSelectedPage(currentPage);
-        setSelectedPages(new Set([currentPage]));
-        pageSelectionAnchor.current = currentPage;
+        setSelectedPages(new Set());
+        pageSelectionAnchor.current = selectedPage;
         return;
       }
       if (
@@ -2567,8 +2658,13 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleAppShortcut);
   }, [
     activeDialog,
+    conversionOpen,
+    compressionOpen,
+    pageOperationBusy,
     currentPage,
     deleteSelectedPage,
+    undoWithView,
+    redoWithView,
     documentPrepared,
     editor,
     moveSelectedAnnotation,
@@ -2577,6 +2673,7 @@ export default function App() {
     requestPrint,
     requestSave,
     selectedAnnotation,
+    selectedPage,
     selectedAnnotationId
   ]);
 
@@ -2594,6 +2691,7 @@ export default function App() {
   }, [currentPage, pages]);
 
   const backgroundActivity = useMemo(() => {
+    if (pageOperationBusy) return "Updating selected pages…";
     if (saving) return "Saving document…";
     if (busy) return loadingStage;
     if (ocrRunning) {
@@ -2609,6 +2707,7 @@ export default function App() {
     return "";
   }, [
     busy,
+    pageOperationBusy,
     loadingStage,
     ocrProgress,
     ocrRunning,
@@ -2993,8 +3092,17 @@ export default function App() {
           >
             <Printer size={16} /> <span className="hidden min-[1120px]:inline">Print</span>
           </button>
+          <button
+            aria-label="Convert PDF or PNG"
+            className={iconButton + " toolbar-tooltip"}
+            data-tooltip="Convert PDF pages to PNG, or PNG images to PDF"
+            data-tooltip-align="end"
+            onClick={() => setConversionOpen(true)}
+          >
+            <Images size={16} /> <span className="hidden min-[1120px]:inline">Convert</span>
+          </button>
         </div>
-        <div className="mx-2 h-6 w-px shrink-0 bg-white/10" aria-hidden="true" />
+        <div className="mx-3 h-6 w-px shrink-0 bg-white/10" aria-hidden="true" />
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold">{fileName}</div>
           <div className="truncate text-[10px] text-zinc-500">
@@ -3024,6 +3132,15 @@ export default function App() {
           </button>
         </div>
       </header>
+      {conversionOpen && <ConversionWizard currentName={documentPrepared && !passwordProtected ? fileName : undefined} getCurrentPdf={() => prepareExportBytes(true)} writePdf={writeLocalPdfAtomically} onClose={() => setConversionOpen(false)} />}
+      {compressionOpen && editor.bytes && <CompressionDialog bytes={editor.bytes} prepareRasterSource={() => prepareExportBytes(true)} onSaveCopy={async (bytes) => {
+        const name = `${fileName.replace(/\.pdf$/i, "")}-rasterized.pdf`;
+        if (!isTauri()) { downloadBytes(bytes, name); return true; }
+        const path = await save({ defaultPath: name, filters: [{ name: "Rasterized PDF copy", extensions: ["pdf"] }] });
+        if (!path) return false;
+        await writeLocalPdfAtomically(path, bytes, undefined, true);
+        return true;
+      }} onApply={editor.applyCompression} onClose={() => setCompressionOpen(false)} />}
 
       <EditorToolbar
         pageCount={pdfDocument?.numPages ?? 0}
@@ -3044,14 +3161,14 @@ export default function App() {
         onDelete={deleteSelectedPage}
         onMovePages={moveSelectedPages}
         onReorder={() => setActiveDialog("reorder-pages")}
-        onUndo={editor.undo}
-        onRedo={editor.redo}
+        onUndo={undoWithView}
+        onRedo={redoWithView}
         onRotate={rotateSelectedPage}
         onToolChange={setActiveTool}
         onFlattenForms={flattenDocumentForms}
         onResetForms={resetDocumentForms}
         hasFormFields={formWidgets.length > 0}
-        onOptimize={editor.optimize}
+        onOptimize={() => setCompressionOpen(true)}
         onSanitize={sanitizeDocumentMetadata}
         onDocumentInfo={showDocumentInfo}
         onToggleSearch={toggleSearch}
@@ -3123,7 +3240,15 @@ export default function App() {
             <div className="min-h-0 flex-1 overflow-y-auto p-3">
               {sidebarTab === "pages" ? (
                 <div className="space-y-2">
-                  {pages.map((page) => <PageThumbnail key={page.pageNumber} page={page} selected={selectedPages.has(page.pageNumber)} selectedPages={selectedPageNumbers} reorderEnabled={documentPrepared} onClick={(event) => selectThumbnailPage(page.pageNumber, event)} onMove={(from, to) => {
+                  <div role="group" aria-label="Page selection controls" className="space-y-2 text-xs text-zinc-400">
+                    <span className="block px-1" aria-live="polite">{pdfDocument ? selectedPageNumbers.length : 0} {selectedPageNumbers.length === 1 ? "page" : "pages"} selected</span>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button disabled={!documentPrepared} className="h-9 min-w-0 whitespace-nowrap rounded-md border border-white/15 px-1 text-[11px] font-medium hover:bg-white/10 disabled:cursor-default disabled:opacity-40" onClick={() => setSelectedPages(new Set(pages.map((page) => page.pageNumber)))}>Select all</button>
+                      <button disabled={!selectedPages.size} className="h-9 min-w-0 whitespace-nowrap rounded-md border border-white/15 px-1 text-[11px] font-medium hover:bg-white/10 disabled:cursor-default disabled:opacity-40" onClick={() => setSelectedPages(new Set())}>Deselect all</button>
+                    </div>
+                  </div>
+                  <p className="px-2 pb-2 text-xs text-zinc-400">Click a thumbnail to browse. Use checkboxes or Ctrl/Shift-click to select pages for editing. Escape clears selection.</p>
+                  {pages.map((page) => <PageThumbnail key={pageViewKey(page)} page={page} current={currentPage === page.pageNumber} selected={selectedPages.has(page.pageNumber)} selectedPages={selectedPageNumbers} reorderEnabled={documentPrepared} onToggle={() => selectThumbnailPage(page.pageNumber, { ctrlKey: true, metaKey: false, shiftKey: false })} onClick={(event) => selectThumbnailPage(page.pageNumber, event)} onMove={(from, to) => {
                     if (!documentPrepared) return;
                     const selectedSet = new Set(from);
                     const remaining = pages
@@ -3136,14 +3261,7 @@ export default function App() {
                       ...from,
                       ...remaining.slice(insertionIndex)
                     ];
-                    const nextSelection = order.flatMap((oldPage, index) =>
-                      selectedSet.has(oldPage) ? [index + 1] : []
-                    );
-                    void editor.reorderPages(from, to);
-                    setSelectedPage(nextSelection[0]);
-                    setCurrentPage(nextSelection[0]);
-                    setSelectedPages(new Set(nextSelection));
-                    pageSelectionAnchor.current = nextSelection[0];
+                    void applyPageOrder(order, from).catch((cause) => setError(String(cause)));
                   }} />)}
                 </div>
               ) : sidebarTab === "layers" ? (
@@ -3244,7 +3362,7 @@ export default function App() {
             >
               {pages.map((page) => (
                 <VirtualizedPdfPage
-                  key={page.pageNumber}
+                  key={pageViewKey(page)}
                   page={page}
                   scale={zoom}
                 >
@@ -3279,6 +3397,11 @@ export default function App() {
               ))}
             </div>
           )}
+          {pageNotice && pageNotice.revision === editor.revision && <div role="status" className="absolute bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-white/15 bg-panel px-4 py-3 text-sm shadow-xl">
+            <span>{pageNotice.text}</span>
+            <button aria-label="Undo page action" className="rounded px-2 py-1 font-semibold text-accent hover:bg-white/10" disabled={!editor.canUndo || !documentPrepared} onClick={undoWithView}>Undo</button>
+            <button aria-label="Dismiss action message" className="rounded px-2 py-1" onClick={() => setPageNotice(null)}>×</button>
+          </div>}
           {busy && (
             <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#252930]/85 backdrop-blur-sm">
               <div

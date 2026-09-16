@@ -295,6 +295,10 @@ fn atomic_temp_path(target: &Path) -> Result<PathBuf, String> {
 }
 
 fn replace_pdf_file(temporary: &Path, target: &Path) -> Result<(), String> {
+    finish_pdf_file(temporary, target, false)
+}
+
+fn finish_pdf_file(temporary: &Path, target: &Path, new_only: bool) -> Result<(), String> {
     if temporary.parent() != target.parent() {
         return Err("The temporary file must be beside the destination PDF.".into());
     }
@@ -316,8 +320,17 @@ fn replace_pdf_file(temporary: &Path, target: &Path) -> Result<(), String> {
         .open(temporary)
         .and_then(|file| file.sync_all())
         .map_err(|error| format!("Could not flush the temporary PDF: {error}"))?;
-    std::fs::rename(temporary, target)
-        .map_err(|error| format!("Could not replace the destination PDF: {error}"))
+    if new_only {
+        // Atomic no-clobber publication: even a destination created after the
+        // save dialog opened must never be replaced by an image-only copy.
+        std::fs::hard_link(temporary, target)
+            .map_err(|error| format!("Could not save a new PDF copy. Choose an unused filename on a local drive; existing files are never overwritten: {error}"))?;
+        let _ = std::fs::remove_file(temporary);
+        Ok(())
+    } else {
+        std::fs::rename(temporary, target)
+            .map_err(|error| format!("Could not replace the destination PDF: {error}"))
+    }
 }
 
 #[tauri::command]
@@ -352,12 +365,17 @@ fn finish_atomic_pdf_write(
     app: tauri::AppHandle,
     temporary_path: String,
     path: String,
+    new_only: Option<bool>,
 ) -> Result<(), String> {
     let scope = app.fs_scope();
     if !scope.is_allowed(&temporary_path) || !scope.is_allowed(&path) {
         return Err("The PDF paths are outside the approved file scope.".into());
     }
-    replace_pdf_file(Path::new(&temporary_path), Path::new(&path))
+    if new_only.unwrap_or(false) {
+        finish_pdf_file(Path::new(&temporary_path), Path::new(&path), true)
+    } else {
+        replace_pdf_file(Path::new(&temporary_path), Path::new(&path))
+    }
 }
 
 #[tauri::command]
@@ -425,14 +443,36 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        atomic_temp_path, pdf_path_from_argument, read_pdf_bytes, replace_pdf_file,
-        reserve_recovery_window, write_smoke_ready_file, OpenedPdfState,
+        atomic_temp_path, finish_pdf_file, pdf_path_from_argument, read_pdf_bytes,
+        replace_pdf_file, reserve_recovery_window, write_smoke_ready_file, OpenedPdfState,
     };
     use std::{
         fs,
         path::Path,
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    #[test]
+    fn raster_copy_never_overwrites_an_existing_file() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let folder = std::env::temp_dir().join(format!("veritypdf-raster-copy-{nonce}"));
+        fs::create_dir_all(&folder).unwrap();
+        let target = folder.join("copy.pdf");
+        let temporary = atomic_temp_path(&target).unwrap();
+        fs::write(&target, b"original PDF").unwrap();
+        fs::write(&temporary, b"rasterized PDF").unwrap();
+        assert!(finish_pdf_file(&temporary, &target, true).is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"original PDF");
+        fs::remove_file(&target).unwrap();
+        finish_pdf_file(&temporary, &target, true).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"rasterized PDF");
+        assert!(!temporary.exists());
+        fs::remove_file(&target).unwrap();
+        fs::remove_dir(&folder).unwrap();
+    }
 
     #[test]
     fn accepts_pdf_paths_case_insensitively() {

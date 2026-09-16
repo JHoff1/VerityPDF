@@ -302,9 +302,10 @@ test("loads, searches, rotates, annotates, and restores history", async ({
 
   const pageTwoThumbnail = page.getByRole("button", { name: "2", exact: true });
   await pageTwoThumbnail.click();
+  await page.getByRole("checkbox", { name: "Select page 2", exact: true }).check();
   await expect(pageTwoThumbnail).toHaveAttribute("aria-pressed", "true");
-  await page.getByRole("button", { name: "Right" }).click();
-  await expect(page.getByRole("button", { name: "Undo" })).toBeEnabled();
+  await page.getByRole("button", { name: /^Rotate \d+ pages? right$/ }).click();
+  await expect(page.locator(".editor-toolbar").getByRole("button", { name: "Undo" })).toBeEnabled();
   await expect
     .poll(async () => {
       const box = await pageTwo.boundingBox();
@@ -324,7 +325,7 @@ test("loads, searches, rotates, annotates, and restores history", async ({
     page.getByRole("contentinfo", { name: "Document status" })
   ).toContainText("Page 2 of 3");
 
-  await page.getByRole("button", { name: "Undo" }).click();
+  await page.locator(".editor-toolbar").getByRole("button", { name: "Undo" }).click();
   await expect
     .poll(async () => {
       const box = await pageTwo.boundingBox();
@@ -360,14 +361,14 @@ test("loads, searches, rotates, annotates, and restores history", async ({
     page.getByRole("region", { name: "Edit selected text annotation" })
   ).toBeVisible();
 
-  await page.getByRole("button", { name: "Undo" }).click();
+  await page.locator(".editor-toolbar").getByRole("button", { name: "Undo" }).click();
   await expect(
     page.getByText("Regression note", { exact: true })
   ).toHaveCount(0);
   await page.getByRole("button", { name: "Redo" }).click();
   await expect(page.getByText("Regression note", { exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "Select" }).click();
+  await page.getByRole("button", { name: "Select", exact: true }).click();
   const textSelectionBox = page.locator('[data-annotation-kind="text"]');
   await textSelectionBox.click();
   const textBoxSpacing = await textSelectionBox.evaluate((selection) => {
@@ -764,13 +765,13 @@ test("selects and rotates multiple pages as one history action", async ({ page }
   const firstThumbnail = page.getByRole("button", { name: "1", exact: true });
   const secondThumbnail = page.getByRole("button", { name: "2", exact: true });
   const thirdThumbnail = page.getByRole("button", { name: "3", exact: true });
-  await firstThumbnail.click();
+  await firstThumbnail.click({ modifiers: ["Control"] });
   await secondThumbnail.click({ modifiers: ["Control"] });
   await expect(
     page.getByRole("contentinfo", { name: "Document status" })
   ).toContainText("2 pages selected");
 
-  await page.getByRole("button", { name: "Right" }).click();
+  await page.getByRole("button", { name: /^Rotate \d+ pages? right$/ }).click();
   const pageOne = firstThumbnail.locator("canvas");
   const pageTwo = secondThumbnail.locator("canvas");
   const pageThree = thirdThumbnail.locator("canvas");
@@ -791,8 +792,9 @@ test("selects and rotates multiple pages as one history action", async ({ page }
   await page.keyboard.press("Escape");
   await expect(
     page.getByRole("contentinfo", { name: "Document status" })
-  ).toContainText("Page 2 of 3");
-  await page.getByRole("button", { name: "Undo" }).click();
+  ).toContainText("Page 1 of 3");
+  await expect(page.locator('aside input[type="checkbox"]:checked')).toHaveCount(0);
+  await page.locator(".editor-toolbar").getByRole("button", { name: "Undo" }).click();
   await expect.poll(async () => {
     const [one, two] = await Promise.all([
       pageOne.boundingBox(),
