@@ -16,6 +16,8 @@ public static class VerityInstallerUi {
   [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr hwnd);
   [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hwnd, uint message, IntPtr wparam, IntPtr lparam);
   [DllImport("user32.dll")] static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr wparam, IntPtr lparam);
+  [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr hwnd);
+  [DllImport("user32.dll")] static extern int GetDlgCtrlID(IntPtr hwnd);
   public static IntPtr[] Windows(IntPtr parent) {
     var result = new List<IntPtr>();
     Callback callback = (hwnd, param) => { result.Add(hwnd); return true; };
@@ -25,6 +27,9 @@ public static class VerityInstallerUi {
   public static int ProcessId(IntPtr hwnd) { int pid; GetWindowThreadProcessId(hwnd, out pid); return pid; }
   public static string Text(IntPtr hwnd) { var text = new StringBuilder(4096); GetWindowText(hwnd, text, text.Capacity); return text.ToString(); }
   public static void Click(IntPtr hwnd) { PostMessage(hwnd, 0xF5, IntPtr.Zero, IntPtr.Zero); }
+  // BM_CLICK can fail when a hidden wizard is not active. Send the button's
+  // BN_CLICKED notification to its owning dialog for wizard navigation only.
+  public static void Advance(IntPtr hwnd) { PostMessage(GetParent(hwnd), 0x111, new IntPtr(GetDlgCtrlID(hwnd)), hwnd); }
 }
 '@
 $process = Start-Process -FilePath (Resolve-Path -LiteralPath $Installer).Path -WindowStyle Hidden -PassThru
@@ -71,7 +76,10 @@ try {
             $button = $controls | Where-Object {
                 $_.Enabled -and ($_.Name -replace '&', '') -match '^(Next\s*>?|Install|Uninstall|Finish|Close)$'
             } | Select-Object -First 1
-            if ($button) { [VerityInstallerUi]::Click($button.Handle) }
+            if ($button) {
+                $log.Add("Advancing enabled wizard button: $($button.Name)")
+                [VerityInstallerUi]::Advance($button.Handle)
+            }
         }
         Start-Sleep -Milliseconds 400
         $process.Refresh()
