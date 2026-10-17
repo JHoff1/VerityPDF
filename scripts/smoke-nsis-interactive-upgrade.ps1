@@ -39,6 +39,7 @@ $selectedUninstall = $false
 $sawUninstaller = $false
 $log = [System.Collections.Generic.List[string]]::new()
 $deadline = [DateTime]::UtcNow.AddMinutes(3)
+$nextActionAt = [DateTime]::UtcNow.AddSeconds(1)
 try {
     while (-not $process.HasExited -and [DateTime]::UtcNow -lt $deadline) {
         # Only interact with this installer's process tree, never arbitrary windows.
@@ -61,11 +62,16 @@ try {
             })
             $names = @($controls | ForEach-Object Name)
             $log.Add("${windowProcess}: $($names -join ' | ')")
+            # Newer NSIS versions enable navigation before the next page's
+            # labels/radio controls are populated. Do not click through that
+            # transition and silently accept the default maintenance choice.
+            if ([DateTime]::UtcNow -lt $nextActionAt) { continue }
             if (($names -join ' ') -match 'Unable to uninstall|could not verify its uninstaller|Error opening file for writing') { throw 'Installer displayed an upgrade error.' }
             $radio = $controls | Where-Object { ($_.Name -replace '&', '') -match '^Uninstall before installing' -and $_.Enabled } | Select-Object -First 1
             if ($radio -and -not $selectedUninstall) {
                 [VerityInstallerUi]::Click($radio.Handle)
                 $selectedUninstall = $true
+                $nextActionAt = [DateTime]::UtcNow.AddSeconds(1)
                 continue
             }
             foreach ($control in $controls) {
@@ -79,6 +85,7 @@ try {
             if ($button) {
                 $log.Add("Advancing enabled wizard button: $($button.Name)")
                 [VerityInstallerUi]::Advance($button.Handle)
+                $nextActionAt = [DateTime]::UtcNow.AddSeconds(1)
             }
         }
         Start-Sleep -Milliseconds 400
