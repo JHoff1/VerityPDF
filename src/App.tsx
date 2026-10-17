@@ -1368,9 +1368,12 @@ export default function App() {
     };
   }, [pdfDocument]);
 
+  // Loading another batch does not change the page being fitted. Depending on
+  // the whole array reruns this state-setting effect on every loading frame.
+  const fittedPage = pages[currentPage - 1];
   useEffect(() => {
     const workspace = workspaceRef.current;
-    const page = pages[currentPage - 1];
+    const page = fittedPage;
     if (!workspace || !page || viewMode === "custom" || pendingPageView.current) return;
 
     const updateFittedZoom = () => {
@@ -1393,7 +1396,7 @@ export default function App() {
     const observer = new ResizeObserver(updateFittedZoom);
     observer.observe(workspace);
     return () => observer.disconnect();
-  }, [currentPage, pages, viewMode]);
+  }, [currentPage, fittedPage, viewMode]);
 
   useLayoutEffect(() => {
     const pending = pendingPageView.current;
@@ -1543,10 +1546,11 @@ export default function App() {
   }, [searchResults, scrollDocumentTo]);
 
   useEffect(() => {
-    setSearchResultIndex(0);
-    if (searchOpen && searchResults.length) {
-      focusSearchResult(0);
-    }
+    // Empty/inactive searches must not enqueue a passive state update for
+    // every progressive page batch. focusSearchResult resets the index when
+    // there is an actual match to display.
+    if (!searchOpen || !searchResults.length) return;
+    focusSearchResult(0);
   }, [focusSearchResult, searchOpen, searchQuery, searchResults]);
 
   const moveSearchResult = useCallback((direction: 1 | -1) => {
