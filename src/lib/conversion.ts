@@ -4,6 +4,33 @@ import { loadPdfRuntime } from "./pdfRuntime";
 export type ConversionFile = { name: string; bytes: Uint8Array };
 export const MAX_CONVERSION_BYTES = 256 * 1024 * 1024;
 
+export function checkConversionInputs(sizes: number[]) {
+  if (sizes.length > 1000 || sizes.some((size) => !Number.isSafeInteger(size) || size < 0) || sizes.reduce((sum, size) => sum + size, 0) > MAX_CONVERSION_BYTES) {
+    throw new Error("Choose up to 1,000 files and 256 MB of input files.");
+  }
+}
+
+// Check every file's metadata before allocating its contents; read sequentially
+// and check actual lengths too, in case a desktop file changed after stat().
+export async function readConversionFiles(files: { name: string; size: number; read: () => Promise<Uint8Array> }[], existing: ConversionFile[] = []) {
+  checkConversionInputs([...existing.map((file) => file.bytes.length), ...files.map((file) => file.size)]);
+  const chosen: ConversionFile[] = [];
+  for (const file of files) {
+    const bytes = await file.read();
+    checkConversionInputs([...existing.map((item) => item.bytes.length), ...chosen.map((item) => item.bytes.length), bytes.length]);
+    chosen.push({ name: file.name, bytes });
+  }
+  return chosen;
+}
+
+export function checkPngDimensions(bytes: Uint8Array) {
+  const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+  if (bytes.length < 33 || signature.some((value, index) => bytes[index] !== value) || String.fromCharCode(...bytes.subarray(12, 16)) !== "IHDR") throw new Error("Choose a valid PNG image.");
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const width = view.getUint32(16); const height = view.getUint32(20);
+  if (!width || !height || width * height > 32_000_000 || Math.max(width, height) > 16384) throw new Error("A PNG image is too large. Use images up to 32 million pixels and 16,384 pixels per side.");
+}
+
 // PNGs are already compressed. A stored ZIP avoids another large compression buffer.
 export function pngArchive(files: ConversionFile[]) {
   const parts: Uint8Array[] = [];
@@ -58,6 +85,8 @@ export function pngArchive(files: ConversionFile[]) {
 
 export async function pngsToPdf(files: ConversionFile[], size: "image" | "a4" | "letter", progress: (message: string) => void, cancelled: () => boolean) {
   if (!files.length) throw new Error("Choose at least one PNG image.");
+  checkConversionInputs(files.map((file) => file.bytes.length));
+  for (const file of files) checkPngDimensions(file.bytes);
   const { PDFDocument } = await import("pdf-lib");
   const pdf = await PDFDocument.create();
   for (const [index, file] of files.entries()) {
@@ -74,20 +103,29 @@ export async function pngsToPdf(files: ConversionFile[], size: "image" | "a4" | 
   return new Blob([new Uint8Array(await pdf.save())], { type: "application/pdf" });
 }
 
-export async function pdfToPngs(bytes: Uint8Array, range: string, dpi: number, progress: (message: string) => void, cancelled: () => boolean) {
+export async function pdfToPngs(bytes: Uint8Array, range: string, dpi: number, progress: (message: string) => void, cancelled: () => boolean, signal?: AbortSignal) {
+  const check = () => { if (cancelled() || signal?.aborted) throw new Error("Conversion cancelled. No output was saved."); };
+  check();
+  checkConversionInputs([bytes.length]);
+  if (![72, 144, 200, 300].includes(dpi)) throw new Error("Choose a supported export resolution.");
   const runtime = await loadPdfRuntime();
+  check();
   const task = runtime.getDocument({ data: new Uint8Array(bytes), isEvalSupported: false });
+  const abort = () => { void task.destroy().catch(() => {}); };
+  signal?.addEventListener("abort", abort, { once: true });
   try {
     const pdf = await task.promise;
+    check();
     const selected = range.trim() ? parsePageRanges(range, pdf.numPages) : { pages: Array.from({ length: pdf.numPages }, (_, index) => index + 1), error: "" };
     if (selected.error) throw new Error(selected.error);
     if (selected.pages.length > 1000) throw new Error("Export up to 1,000 pages at a time using a page range.");
     const files: ConversionFile[] = [];
     let totalBytes = 0;
     for (const [index, number] of selected.pages.entries()) {
-      if (cancelled()) throw new Error("Conversion cancelled. No output was saved.");
+      check();
       progress(`Rendering page ${number} (${index + 1} of ${selected.pages.length})`);
       const page = await pdf.getPage(number);
+      check();
       const viewport = page.getViewport({ scale: dpi / 72 });
       if (viewport.width * viewport.height > 32_000_000 || Math.max(viewport.width, viewport.height) > 16384) throw new Error(`Page ${number} is too large at this resolution. Choose a lower DPI.`);
       const canvas = document.createElement("canvas");
@@ -96,8 +134,13 @@ export async function pdfToPngs(bytes: Uint8Array, range: string, dpi: number, p
         canvas.height = Math.ceil(viewport.height);
         const context = canvas.getContext("2d", { alpha: false });
         if (!context) throw new Error("Unable to create an image canvas.");
-        await page.render({ canvasContext: context, viewport, background: "white" }).promise;
+        const render = page.render({ canvasContext: context, viewport, background: "white" });
+        const cancelRender = () => render.cancel();
+        signal?.addEventListener("abort", cancelRender, { once: true });
+        try { check(); await render.promise; } finally { signal?.removeEventListener("abort", cancelRender); }
+        check();
         const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((result) => result ? resolve(result) : reject(new Error("PNG encoding failed.")), "image/png"));
+        check();
         totalBytes += blob.size;
         if (totalBytes > MAX_CONVERSION_BYTES) throw new Error("The export exceeds 256 MB. Choose fewer pages or a lower DPI.");
         files.push({ name: `page-${String(number).padStart(4, "0")}.png`, bytes: new Uint8Array(await blob.arrayBuffer()) });
@@ -106,8 +149,13 @@ export async function pdfToPngs(bytes: Uint8Array, range: string, dpi: number, p
         page.cleanup();
       }
     }
+    check();
     return files;
+  } catch (cause) {
+    check();
+    throw cause;
   } finally {
+    signal?.removeEventListener("abort", abort);
     await task.destroy();
   }
 }

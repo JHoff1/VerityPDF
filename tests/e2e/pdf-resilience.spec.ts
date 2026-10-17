@@ -44,6 +44,8 @@ test("keeps memory bounded when opening a 500-page structural document", async (
   page
 }) => {
   test.setTimeout(90_000);
+  const updateErrors: string[] = [];
+  page.on("console", (message) => { if (message.text().includes("Maximum update depth")) updateErrors.push(message.text()); });
   await page.goto("/");
   await page.locator('input[type="file"][accept="application/pdf,.pdf"]')
     .first()
@@ -60,4 +62,5 @@ test("keeps memory bounded when opening a 500-page structural document", async (
   });
   await expect.poll(() => page.locator("[data-page-mounted]").count())
     .toBeLessThanOrEqual(20);
+  expect(updateErrors).toEqual([]);
 });

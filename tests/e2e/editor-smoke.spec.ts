@@ -1122,6 +1122,12 @@ test("finishes offline OCR in the background for an image-only PDF", async ({
   page
 }) => {
   test.setTimeout(90_000);
+  let releaseWorker!: () => void;
+  const workerGate = new Promise<void>((resolve) => { releaseWorker = resolve; });
+  await page.route("**/ocr/core/worker.min.js", async (route) => {
+    await workerGate;
+    await route.continue();
+  });
   await page.goto("/");
   const pdfInputs = page.locator(
     'input[type="file"][accept="application/pdf,.pdf"]'
@@ -1141,9 +1147,11 @@ test("finishes offline OCR in the background for an image-only PDF", async ({
     /Loading English OCR data|Loading (accelerated )?offline OCR engine|Initializing offline OCR engine|Recognizing page/,
     { timeout: 20_000 }
   );
-  await expect(
-    statusBar.getByRole("button", { name: "Cancel background OCR" })
-  ).toBeVisible();
+  // OCR can finish between observing progress and asserting its cancel button.
+  // Hold the worker response so cancellation controls are checked while busy.
+  try {
+    await expect(statusBar.getByRole("button", { name: "Cancel background OCR" })).toBeVisible();
+  } finally { releaseWorker(); }
   await expect(
     page.getByRole("status").filter({ hasText: /OCR complete/ })
   ).toBeVisible({ timeout: 60_000 });

@@ -834,7 +834,7 @@ export default function App() {
   useEffect(() => {
     if (ocrWorker.current) {
       ocrCancelRequested.current = true;
-      void ocrWorker.current.terminate();
+      void ocrWorker.current.terminate().catch(() => undefined);
     }
     setPageText([]);
     setPageSearchSpans([]);
@@ -1585,6 +1585,9 @@ export default function App() {
             corePath: assetUrl(corePath),
             langPath: assetUrl("ocr/lang"),
             cacheMethod: "none",
+            // Tesseract rejects its job/startup promises as well; App handles
+            // those below. Avoid its default duplicate, uncaught worker throw.
+            errorHandler: () => {},
             logger: (message) => {
               if (typeof message.progress === "number") {
                 setOcrProgress((activePage + message.progress) / pageIndexes.length);
@@ -1628,27 +1631,35 @@ export default function App() {
         const canvas = window.document.createElement("canvas");
         canvas.width = Math.ceil(viewport.width);
         canvas.height = Math.ceil(viewport.height);
-        const context = canvas.getContext("2d", { alpha: false });
-        if (!context) throw new Error("Canvas rendering is unavailable for OCR.");
-        await page.render({ canvasContext: context, viewport }).promise;
-        const result = await worker.recognize(canvas, {}, { text: true, blocks: true });
-        recognized[pageIndex] = result.data.text.trim();
-        recognizedSpans[pageIndex] = (result.data.blocks ?? []).flatMap((block) =>
-          block.paragraphs.flatMap((paragraph) =>
-            paragraph.lines.flatMap((line) =>
-              line.words.map((word) => ({
-                text: word.text,
-                x: word.bbox.x0 / canvas.width,
-                y: word.bbox.y0 / canvas.height,
-                width: (word.bbox.x1 - word.bbox.x0) / canvas.width,
-                height: (word.bbox.y1 - word.bbox.y0) / canvas.height
-              }))
+        try {
+          const context = canvas.getContext("2d", { alpha: false });
+          if (!context) throw new Error("Canvas rendering is unavailable for OCR.");
+          await page.render({ canvasContext: context, viewport }).promise;
+          if (ocrCancelRequested.current || ocrWorker.current !== worker) break;
+          // Prepare the image before submitting a worker job. Tesseract's
+          // asynchronous canvas conversion otherwise races worker termination.
+          const image = canvas.toDataURL("image/png");
+          if (ocrCancelRequested.current || ocrWorker.current !== worker) break;
+          const result = await worker.recognize(image, {}, { text: true, blocks: true });
+          if (ocrCancelRequested.current || ocrWorker.current !== worker) break;
+          recognized[pageIndex] = result.data.text.trim();
+          recognizedSpans[pageIndex] = (result.data.blocks ?? []).flatMap((block) =>
+            block.paragraphs.flatMap((paragraph) =>
+              paragraph.lines.flatMap((line) =>
+                line.words.map((word) => ({
+                  text: word.text,
+                  x: word.bbox.x0 / canvas.width,
+                  y: word.bbox.y0 / canvas.height,
+                  width: (word.bbox.x1 - word.bbox.x0) / canvas.width,
+                  height: (word.bbox.y1 - word.bbox.y0) / canvas.height
+                }))
+              )
             )
-          )
-        );
-        setOcrText([...recognized]);
-        setOcrSearchSpans(recognizedSpans.map((spans) => [...spans]));
-        setOcrProgress((position + 1) / pageIndexes.length);
+          );
+          setOcrText([...recognized]);
+          setOcrSearchSpans(recognizedSpans.map((spans) => [...spans]));
+          setOcrProgress((position + 1) / pageIndexes.length);
+        } finally { canvas.width = canvas.height = 0; }
       }
       const completionMessage = ocrCancelRequested.current
         ? "OCR canceled."
@@ -1678,7 +1689,7 @@ export default function App() {
   const cancelOcr = useCallback(() => {
     ocrCancelRequested.current = true;
     setOcrStatus("Canceling OCR…");
-    void ocrWorker.current?.terminate();
+    void ocrWorker.current?.terminate().catch(() => undefined);
   }, []);
 
   useEffect(() => {

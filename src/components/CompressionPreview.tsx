@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { loadPdfRuntime } from "../lib/pdfRuntime";
 
 export function CompressionPreview({ before, after, sample = false, includesEdits = false }: { before: Uint8Array; after: Uint8Array; sample?: boolean; includesEdits?: boolean }) {
@@ -7,34 +8,52 @@ export function CompressionPreview({ before, after, sample = false, includesEdit
   const [images, setImages] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [detail, setDetail] = useState(false);
+  const [loaded, setLoaded] = useState<{ before: Uint8Array; after: Uint8Array; pdfs: PDFDocumentProxy[] } | null>(null);
   useEffect(() => {
     let stopped = false;
     const tasks: ReturnType<Awaited<ReturnType<typeof loadPdfRuntime>>["getDocument"]>[] = [];
-    setImages([]); setError("");
+    setLoaded(null); setImages([]); setError(""); setPage(1);
     void (async () => {
       const runtime = await loadPdfRuntime();
+      if (stopped) return;
+      for (const bytes of [before, after]) tasks.push(runtime.getDocument({ data: bytes.slice(), isEvalSupported: false }));
+      const pdfs = await Promise.all(tasks.map((task) => task.promise));
+      if (!stopped) setLoaded({ before, after, pdfs });
+    })().catch((cause) => {
+      for (const task of tasks) void task.destroy().catch(() => {});
+      if (!stopped) setError(`Preview unavailable: ${String(cause)}`);
+    });
+    return () => { stopped = true; for (const task of tasks) void task.destroy().catch(() => {}); };
+  }, [before, after]);
+  useEffect(() => {
+    if (!loaded || loaded.before !== before || loaded.after !== after) return;
+    let stopped = false;
+    let render: RenderTask | undefined;
+    setImages([]); setError("");
+    setCount(sample ? 1 : Math.min(...loaded.pdfs.map((pdf) => pdf.numPages)));
+    void (async () => {
       const output: string[] = [];
-      for (const bytes of [before, after]) {
+      for (const pdf of loaded.pdfs) {
         if (stopped) return;
-        const task = runtime.getDocument({ data: bytes.slice(), isEvalSupported: false });
-        tasks.push(task);
-        const pdf = await task.promise;
-        if (stopped) return;
-        setCount(sample ? 1 : pdf.numPages);
         const source = await pdf.getPage(Math.min(page, pdf.numPages));
-        const size = source.getViewport({ scale: 1 });
-        const viewport = source.getViewport({ scale: Math.min(2, 1600 / Math.max(size.width, size.height)) });
         const canvas = document.createElement("canvas");
-        canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
-        await source.render({ canvasContext: canvas.getContext("2d")!, viewport }).promise;
-        output.push(canvas.toDataURL("image/png"));
-        canvas.width = canvas.height = 0;
+        try {
+          if (stopped) return;
+          const size = source.getViewport({ scale: 1 });
+          const viewport = source.getViewport({ scale: Math.min(2, 1600 / Math.max(size.width, size.height)) });
+          canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
+          const context = canvas.getContext("2d");
+          if (!context) throw new Error("Unable to create a preview canvas.");
+          render = source.render({ canvasContext: context, viewport });
+          await render.promise;
+          render = undefined;
+          if (!stopped) output.push(canvas.toDataURL("image/png"));
+        } finally { canvas.width = canvas.height = 0; source.cleanup(); }
       }
       if (!stopped) setImages(output);
-    })().catch((cause) => { if (!stopped) setError(`Preview unavailable: ${String(cause)}`); })
-      .finally(() => { for (const task of tasks) void task.destroy(); });
-    return () => { stopped = true; for (const task of tasks) void task.destroy(); };
-  }, [before, after, page, sample]);
+    })().catch((cause) => { if (!stopped) setError(`Preview unavailable: ${String(cause)}`); });
+    return () => { stopped = true; render?.cancel(); };
+  }, [loaded, before, after, page, sample]);
   return <section className="mt-4 space-y-3" aria-label="Compression quality preview">
     <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
       <button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)} className="rounded border border-white/15 px-3 py-2 disabled:opacity-40">Previous preview page</button>

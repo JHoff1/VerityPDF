@@ -139,7 +139,7 @@ Windows SmartScreen or macOS Gatekeeper warnings.
 
 ### Prerequisites
 
-- Node.js 20 or later
+- Node.js 24
 - Rust stable with the MSVC toolchain on Windows
 - The platform prerequisites listed in the
   [Tauri documentation](https://v2.tauri.app/start/prerequisites/)
@@ -149,6 +149,10 @@ On Windows, Tauri also requires Microsoft C++ Build Tools with the
 versions of Windows.
 
 ### Run the browser preview
+
+Use Node.js 24 (also used by CI; `.nvmrc` selects it with nvm).
+Update Tauri's npm packages and Rust crates together so their major/minor
+versions match before building native packages.
 
 ```sh
 npm install

@@ -16,7 +16,7 @@ export default defineConfig({
     viewport: { width: 1280, height: 900 }
   },
   webServer: {
-    command: "npm run dev -- --host 127.0.0.1",
+    command: `"${process.execPath}" node_modules/vite/bin/vite.js --host 127.0.0.1`,
     url: "http://127.0.0.1:1420",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000
