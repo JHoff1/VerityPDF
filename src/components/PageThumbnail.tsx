@@ -7,19 +7,24 @@ import {
 } from "react";
 import { LoaderCircle } from "lucide-react";
 import type { PDFPageProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
+import { originalPage } from "../lib/pageView";
 
 export function PageThumbnail({
   page,
   selected,
+  current = false,
   selectedPages,
   reorderEnabled,
   onClick,
+  onToggle,
   onMove
 }: {
   page: PDFPageProxy;
   selected: boolean;
+  current?: boolean;
   reorderEnabled: boolean;
   onClick: (event: MouseEvent<HTMLButtonElement>) => void;
+  onToggle?: () => void;
   onMove: (from: number[], to: number) => void;
   selectedPages?: number[];
 }) {
@@ -27,10 +32,11 @@ export function PageThumbnail({
   const ref = useRef<HTMLCanvasElement>(null);
   const [renderActive, setRenderActive] = useState(false);
   const [rendered, setRendered] = useState(false);
+  const source = originalPage(page);
   const viewport = useMemo(() => {
-    const raw = page.getViewport({ scale: 1 });
-    return page.getViewport({ scale: 112 / raw.width });
-  }, [page]);
+    const raw = source.getViewport({ scale: 1 });
+    return source.getViewport({ scale: 112 / raw.width });
+  }, [source]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -51,19 +57,24 @@ export function PageThumbnail({
     setRendered(false);
     canvas.width = Math.floor(viewport.width);
     canvas.height = Math.floor(viewport.height);
-    const task = page.render({ canvasContext: context, viewport });
+    const task = source.render({ canvasContext: context, viewport });
     void task.promise
       .then(() => setRendered(true))
       .catch(() => {
         // Rendering cancellation is expected as thumbnails leave the viewport.
       });
     return () => task.cancel();
-  }, [page, renderActive, viewport]);
+  }, [source, renderActive, viewport]);
 
   return (
+    <div className="relative">
+      {onToggle && <label className="absolute left-1 top-1 z-10 flex h-8 w-8 cursor-pointer items-center justify-center rounded bg-[#202329]">
+        <input type="checkbox" aria-label={`Select page ${page.pageNumber}`} checked={selected} disabled={!reorderEnabled} onChange={onToggle} className="h-4 w-4 accent-orange-500" />
+      </label>}
     <button
       onClick={onClick}
       aria-pressed={selected}
+      aria-current={current ? "page" : undefined}
       draggable={reorderEnabled}
       onDragStart={(event) => {
         const pages = selectedPages?.includes(page.pageNumber)
@@ -114,5 +125,6 @@ export function PageThumbnail({
         {page.pageNumber}
       </span>
     </button>
+    </div>
   );
 }

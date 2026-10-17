@@ -36,6 +36,23 @@ async function imageOnlyPdf() {
   return Buffer.from(await pdf.save());
 }
 
+test("updates the document title after Save As renames the PDF", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('input[type="file"][accept="application/pdf,.pdf"]').first().setInputFiles({
+    name: "original.pdf", mimeType: "application/pdf", buffer: await syntheticPdf()
+  });
+  await expect(page).toHaveTitle("original.pdf — VerityPDF");
+  await page.getByRole("button", { name: "Save PDF As" }).click();
+  await page.getByRole("dialog", { name: "Review export" })
+    .getByRole("button", { name: "Continue to Save As" }).click();
+  const dialog = page.getByRole("dialog", { name: "Save PDF As", exact: true });
+  await dialog.getByLabel("File name").fill("original11.pdf");
+  const downloaded = page.waitForEvent("download");
+  await dialog.getByRole("button", { name: "Continue", exact: true }).click();
+  expect((await downloaded).suggestedFilename()).toBe("original11.pdf");
+  await expect(page).toHaveTitle("original11.pdf — VerityPDF");
+});
+
 function encryptedPdf() {
   // A deterministic one-page PDF encrypted with the password below. Keeping
   // the fixture inline avoids relying on a native PDF encryption tool in CI.
@@ -302,9 +319,10 @@ test("loads, searches, rotates, annotates, and restores history", async ({
 
   const pageTwoThumbnail = page.getByRole("button", { name: "2", exact: true });
   await pageTwoThumbnail.click();
+  await page.getByRole("checkbox", { name: "Select page 2", exact: true }).check();
   await expect(pageTwoThumbnail).toHaveAttribute("aria-pressed", "true");
-  await page.getByRole("button", { name: "Right" }).click();
-  await expect(page.getByRole("button", { name: "Undo" })).toBeEnabled();
+  await page.getByRole("button", { name: /^Rotate \d+ pages? right$/ }).click();
+  await expect(page.locator(".editor-toolbar").getByRole("button", { name: "Undo" })).toBeEnabled();
   await expect
     .poll(async () => {
       const box = await pageTwo.boundingBox();
@@ -324,7 +342,7 @@ test("loads, searches, rotates, annotates, and restores history", async ({
     page.getByRole("contentinfo", { name: "Document status" })
   ).toContainText("Page 2 of 3");
 
-  await page.getByRole("button", { name: "Undo" }).click();
+  await page.locator(".editor-toolbar").getByRole("button", { name: "Undo" }).click();
   await expect
     .poll(async () => {
       const box = await pageTwo.boundingBox();
@@ -360,14 +378,14 @@ test("loads, searches, rotates, annotates, and restores history", async ({
     page.getByRole("region", { name: "Edit selected text annotation" })
   ).toBeVisible();
 
-  await page.getByRole("button", { name: "Undo" }).click();
+  await page.locator(".editor-toolbar").getByRole("button", { name: "Undo" }).click();
   await expect(
     page.getByText("Regression note", { exact: true })
   ).toHaveCount(0);
   await page.getByRole("button", { name: "Redo" }).click();
   await expect(page.getByText("Regression note", { exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "Select" }).click();
+  await page.getByRole("button", { name: "Select", exact: true }).click();
   const textSelectionBox = page.locator('[data-annotation-kind="text"]');
   await textSelectionBox.click();
   const textBoxSpacing = await textSelectionBox.evaluate((selection) => {
@@ -764,13 +782,13 @@ test("selects and rotates multiple pages as one history action", async ({ page }
   const firstThumbnail = page.getByRole("button", { name: "1", exact: true });
   const secondThumbnail = page.getByRole("button", { name: "2", exact: true });
   const thirdThumbnail = page.getByRole("button", { name: "3", exact: true });
-  await firstThumbnail.click();
+  await firstThumbnail.click({ modifiers: ["Control"] });
   await secondThumbnail.click({ modifiers: ["Control"] });
   await expect(
     page.getByRole("contentinfo", { name: "Document status" })
   ).toContainText("2 pages selected");
 
-  await page.getByRole("button", { name: "Right" }).click();
+  await page.getByRole("button", { name: /^Rotate \d+ pages? right$/ }).click();
   const pageOne = firstThumbnail.locator("canvas");
   const pageTwo = secondThumbnail.locator("canvas");
   const pageThree = thirdThumbnail.locator("canvas");
@@ -791,8 +809,9 @@ test("selects and rotates multiple pages as one history action", async ({ page }
   await page.keyboard.press("Escape");
   await expect(
     page.getByRole("contentinfo", { name: "Document status" })
-  ).toContainText("Page 2 of 3");
-  await page.getByRole("button", { name: "Undo" }).click();
+  ).toContainText("Page 1 of 3");
+  await expect(page.locator('aside input[type="checkbox"]:checked')).toHaveCount(0);
+  await page.locator(".editor-toolbar").getByRole("button", { name: "Undo" }).click();
   await expect.poll(async () => {
     const [one, two] = await Promise.all([
       pageOne.boundingBox(),
@@ -1120,6 +1139,12 @@ test("finishes offline OCR in the background for an image-only PDF", async ({
   page
 }) => {
   test.setTimeout(90_000);
+  let releaseWorker!: () => void;
+  const workerGate = new Promise<void>((resolve) => { releaseWorker = resolve; });
+  await page.route("**/ocr/core/worker.min.js", async (route) => {
+    await workerGate;
+    await route.continue();
+  });
   await page.goto("/");
   const pdfInputs = page.locator(
     'input[type="file"][accept="application/pdf,.pdf"]'
@@ -1139,9 +1164,11 @@ test("finishes offline OCR in the background for an image-only PDF", async ({
     /Loading English OCR data|Loading (accelerated )?offline OCR engine|Initializing offline OCR engine|Recognizing page/,
     { timeout: 20_000 }
   );
-  await expect(
-    statusBar.getByRole("button", { name: "Cancel background OCR" })
-  ).toBeVisible();
+  // OCR can finish between observing progress and asserting its cancel button.
+  // Hold the worker response so cancellation controls are checked while busy.
+  try {
+    await expect(statusBar.getByRole("button", { name: "Cancel background OCR" })).toBeVisible();
+  } finally { releaseWorker(); }
   await expect(
     page.getByRole("status").filter({ hasText: /OCR complete/ })
   ).toBeVisible({ timeout: 60_000 });

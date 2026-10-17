@@ -55,7 +55,14 @@ body,
   width: 100%;
   height: 100%;
   margin: 0;
-  overflow: hidden;
+  /* `hidden` still allows focus/scrollIntoView to scroll the app itself,
+     which can push the header above the window. Only inner panes scroll. */
+  overflow: clip;
+}
+
+.app-shell {
+  min-height: 0;
+  overflow: clip;
 }
 
 button:focus-visible,

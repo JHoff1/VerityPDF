@@ -80,6 +80,7 @@ export type Annotation =
 
 type Snapshot = {
   bytes: Uint8Array;
+  renderView?: { bytes: Uint8Array; indices: number[] };
   annotations: Annotation[];
   label: string;
 };
@@ -300,6 +301,7 @@ export function useDocumentEditor() {
   const commit = useCallback((snapshot: Snapshot) => {
     const stored = {
       ...snapshot,
+      renderView: snapshot.renderView ?? (snapshot.bytes === currentRef.current?.bytes ? currentRef.current.renderView : undefined),
       // PDF bytes are treated as immutable. Keeping the same reference for
       // annotation-only commits prevents PDF.js from rebuilding every page.
       bytes: snapshot.bytes,
@@ -320,17 +322,23 @@ export function useDocumentEditor() {
   const transformPdf = useCallback((
     label: string,
     operation: (pdf: PDFDocument) => Promise<void> | void,
-    transformAnnotations?: (items: Annotation[]) => Annotation[]
+    transformAnnotations?: (items: Annotation[]) => Annotation[],
+    removedPages?: Set<number>
   ) => {
     const task = transformQueue.current.then(async () => {
       const source = currentRef.current;
       if (!source) return;
       const { PDFDocument } = await loadPdfLib();
       const pdf = await PDFDocument.load(source.bytes);
+      const indices = source.renderView?.indices ?? Array.from({ length: pdf.getPageCount() }, (_, index) => index + 1);
       await operation(pdf);
       const bytes = await pdf.save({ useObjectStreams: true });
       commit({
         bytes,
+        renderView: removedPages ? {
+          bytes: source.renderView?.bytes ?? source.bytes,
+          indices: indices.filter((_, index) => !removedPages.has(index + 1))
+        } : undefined,
         annotations: transformAnnotations
           ? transformAnnotations(source.annotations)
           : source.annotations,
@@ -373,6 +381,9 @@ export function useDocumentEditor() {
     return transformPdf(
       `Delete ${pageNumbers.length} pages`,
       (pdf) => {
+        if (!selected.size || selected.size >= pdf.getPageCount() || [...selected].some((page) => !Number.isInteger(page) || page < 1 || page > pdf.getPageCount())) {
+          throw new Error("Select valid pages and leave at least one page in the document.");
+        }
         [...selected]
           .sort((left, right) => right - left)
           .forEach((pageNumber) => pdf.removePage(pageNumber - 1));
@@ -381,8 +392,9 @@ export function useDocumentEditor() {
         .filter((item) => !selected.has(item.page))
         .map((item) => ({
           ...item,
-          page: item.page - pageNumbers.filter((page) => page < item.page).length
-        }))
+          page: item.page - [...selected].filter((page) => page < item.page).length
+        })),
+      selected
     );
   }, [transformPdf]);
 
@@ -562,11 +574,12 @@ export function useDocumentEditor() {
       pdf.setCreator("");
     }), [transformPdf]);
 
-  const optimize = useCallback(() =>
-    transformPdf("Optimize document", () => {
-      // Re-saving with object streams removes unused indirect objects and
-      // recompresses the document structure without sending data elsewhere.
-    }), [transformPdf]);
+  const applyCompression = useCallback((bytes: Uint8Array, original: Uint8Array) => {
+    const source = currentRef.current;
+    if (!source || source.bytes !== original) throw new Error("The document changed. Close this dialog and run compression again.");
+    if (bytes.length >= original.length) return;
+    commit({ bytes, annotations: source.annotations, label: "Compress PDF" });
+  }, [commit]);
 
   const removeAnnotation = useCallback((id: string) => {
     if (!current) return;
@@ -683,10 +696,14 @@ export function useDocumentEditor() {
   }, [commit, current]);
 
   return useMemo(() => ({
+    revision: current,
     bytes: current?.bytes ?? null,
+    renderView: current?.renderView,
     annotations: current?.annotations ?? [],
     isDirty: Boolean(current) && historyIndex !== savedHistoryIndex,
     canUndo: historyIndex > 0,
+    undoBytes: history[historyIndex - 1]?.bytes,
+    redoBytes: history[historyIndex + 1]?.bytes,
     canRedo: historyIndex >= 0 && historyIndex < history.length - 1,
     undoLabel: history[historyIndex]?.label,
     load,
@@ -717,11 +734,11 @@ export function useDocumentEditor() {
     flattenForms,
     fillFormField,
     sanitize,
-    optimize,
+    applyCompression,
     flattened: () => current ? flattenPdf(current.bytes, current.annotations) : null
   }), [
     addAnnotation, clear, current, duplicate, duplicatePages, extract, history, historyIndex, load, restore,
-    fillFormField, flattenForms, merge, mergeMany, optimize, remove, removePages, removeAnnotation, reorder, reorderPages, reorderPageOrder, rotate, rotatePages,
+    fillFormField, flattenForms, merge, mergeMany, applyCompression, remove, removePages, removeAnnotation, reorder, reorderPages, reorderPageOrder, rotate, rotatePages,
     sanitize, savedHistoryIndex, updateAnnotation, updateAnnotations, moveAnnotationInStack, removeAnnotations, duplicateAnnotations
   ]);
 }
