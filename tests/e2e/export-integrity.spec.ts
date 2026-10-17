@@ -106,3 +106,33 @@ test("exports a local privacy-scrubbed diagnostic report", async ({ page }) => {
   expect(report).toContain("document contents, file names, recent-file paths");
   expect(report).not.toMatch(/[A-Z]:\\Users\\/i);
 });
+
+test("reviews and copies diagnostics before opening a prefilled GitHub issue", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/");
+  await page.locator('input[accept="application/pdf,.pdf"]').first().setInputFiles({
+    name: "private-client.pdf", mimeType: "application/pdf", buffer: Buffer.from("invalid PDF")
+  });
+  await expect(page.getByRole("alert")).toContainText("Unable to complete that action");
+  await page.getByRole("button", { name: "Copy error details", exact: true }).click();
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied).toContain("Version:");
+  expect(copied).toContain("Platform:");
+  expect(copied).not.toContain("private-client.pdf");
+  await page.getByRole("button", { name: "Report issue", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Review issue report" });
+  const draft = await dialog.getByLabel("Issue report", { exact: true }).inputValue();
+  expect(draft).toContain("## Steps to reproduce");
+  expect(draft).toContain("Last error:");
+  expect(draft).not.toContain("private-client.pdf");
+  await dialog.getByLabel("Issue report", { exact: true }).fill(`${draft}\nTest reproduction steps`);
+  await dialog.getByRole("button", { name: "Copy report", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("Test reproduction steps");
+  // Capture the URL without contacting GitHub or submitting an actual issue.
+  await page.evaluate(() => { window.open = (url) => { (window as unknown as { issueUrl: string }).issueUrl = String(url); return null; }; });
+  await dialog.getByRole("button", { name: "Open GitHub", exact: true }).click();
+  const url = new URL(await page.evaluate(() => (window as unknown as { issueUrl: string }).issueUrl));
+  expect(url.origin + url.pathname).toBe("https://github.com/JHoff1/VerityPDF/issues/new");
+  expect(url.searchParams.get("body")).toContain("Test reproduction steps");
+  expect(url.searchParams.get("body")).not.toContain("private-client.pdf");
+});

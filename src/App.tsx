@@ -136,7 +136,8 @@ import {
   type UpdateCheckStatus
 } from "./lib/updateCheck";
 import { version as APP_VERSION } from "../package.json";
-import { createDiagnosticReport } from "./diagnostics";
+import { createDiagnosticReport, createIssueReport, errorGuidance } from "./diagnostics";
+import { AppDialog } from "./components/AppDialog";
 
 // Keep the pre-rebrand keys to preserve window and session state on upgrade.
 const WINDOW_BOUNDS_KEY = "sovereignpdf.window-bounds.v1";
@@ -388,6 +389,7 @@ export default function App() {
   const [sourcePreparedPageCount, setPreparedPageCount] = useState(0);
   const preparedPageCount = editor.renderView ? pages.length : sourcePreparedPageCount;
   const [error, setError] = useState<string | null>(null);
+  const [issueDraft, setIssueDraft] = useState<string | null>(null);
   const [activeDialog, setActiveDialog] = useState<"preferences" | "about-support" | "shortcuts" | "merge" | "export-summary" | "save" | "overwrite" | "split" | "split-save" | "print" | "password" | "unsaved-close" | "recovery" | "document-info" | "reorder-pages" | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
   const [saveName, setSaveName] = useState("");
@@ -436,20 +438,13 @@ export default function App() {
     }
   };
 
-  const reportIssue = () =>
-    openExternalProjectPage(
-      GITHUB_ISSUES_URL,
-      "The GitHub issue page could not be opened."
-    );
-
-  const exportDiagnostics = async () => {
-    const report = createDiagnosticReport({
+  const diagnosticSnapshot = () => ({
       version: APP_VERSION,
       platform: window.navigator.platform,
       desktop: isTauri(),
       pageCount: pdfDocument?.numPages ?? 0,
       annotationCount: editor.annotations.length,
-      dirty: editor.isDirty,
+      dirty: editor.isDirty || hasFormDrafts,
       theme: preferences.theme,
       viewMode,
       flattenAnnotations: preferences.flattenAnnotations,
@@ -457,6 +452,13 @@ export default function App() {
       restoreSession: preferences.restoreSession,
       lastError: error
     });
+  const reportIssue = () => {
+    setIssueDraft(createIssueReport(diagnosticSnapshot()));
+    setError(null);
+  };
+
+  const exportDiagnostics = async () => {
+    const report = createDiagnosticReport(diagnosticSnapshot());
     try {
       if (isTauri()) {
         const destination = await save({
@@ -507,11 +509,7 @@ export default function App() {
 
   const copyErrorDetails = async () => {
     if (!error) return;
-    const details = [
-      "VerityPDF error report",
-      `Platform: ${navigator.platform || "Unknown"}`,
-      `Error: ${error}`
-    ].join("\n");
+    const details = createIssueReport(diagnosticSnapshot());
     try {
       await navigator.clipboard.writeText(details);
       setSuccessMessage("Error details copied. Review them before including them in a report.");
@@ -3058,6 +3056,7 @@ export default function App() {
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold">Unable to complete that action</p>
             <p className="mt-1 break-words text-xs leading-5 text-red-100/80">{error}</p>
+            {errorGuidance(error, navigator.platform) && <p className="mt-2 text-xs leading-5 text-red-100">{errorGuidance(error, navigator.platform)}</p>}
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
@@ -3152,6 +3151,17 @@ export default function App() {
           </button>
         </div>
       </header>
+      {issueDraft !== null && <AppDialog title="Review issue report" description="Review or edit this report before opening GitHub. Nothing is sent until you choose Open GitHub; posting the issue is a separate step on GitHub." confirmLabel="Open GitHub" wide onCancel={() => setIssueDraft(null)} onConfirm={() => {
+        const url = `${GITHUB_ISSUES_URL}?body=${encodeURIComponent(issueDraft)}`;
+        void openExternalProjectPage(url, "The GitHub issue page could not be opened.");
+        setIssueDraft(null);
+      }}>
+        <label htmlFor="issue-report" className="text-sm">Issue report</label>
+        <textarea id="issue-report" className="mt-2 h-72 w-full rounded border border-white/15 bg-[#15171b] p-3 text-xs" value={issueDraft} onChange={(event) => setIssueDraft(event.target.value)} />
+        <button type="button" className="mt-2 rounded border border-white/15 px-3 py-2 text-sm" onClick={() => {
+          void navigator.clipboard.writeText(issueDraft).then(() => setSuccessMessage("Issue report copied. Review it before sharing."), () => setSuccessMessage("Copy unavailable. Select the report text and copy it manually."));
+        }}>Copy report</button>
+      </AppDialog>}
       {conversionOpen && <ConversionWizard currentName={documentPrepared && !passwordProtected ? fileName : undefined} getCurrentPdf={() => prepareExportBytes(true)} writePdf={writeLocalPdfAtomically} onClose={() => setConversionOpen(false)} />}
       {compressionOpen && editor.bytes && <CompressionDialog bytes={editor.bytes} prepareRasterSource={() => prepareExportBytes(true)} onSaveCopy={async (bytes) => {
         const name = `${fileName.replace(/\.pdf$/i, "")}-rasterized.pdf`;
