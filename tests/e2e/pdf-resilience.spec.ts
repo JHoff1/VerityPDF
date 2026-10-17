@@ -40,11 +40,15 @@ test("recovers after malformed and truncated PDFs without replacing the workspac
   await expect(page.locator('[aria-label="Page 3"]')).toBeInViewport();
 });
 
-test("keeps memory bounded when opening a 500-page structural document", async ({
+for (const searchOpen of [false, true]) {
+test(`keeps memory bounded when opening a 500-page structural document (search ${searchOpen ? "open" : "closed"})`, async ({
   page
 }) => {
   test.setTimeout(90_000);
+  const updateErrors: string[] = [];
+  page.on("console", (message) => { if (message.text().includes("Maximum update depth")) updateErrors.push(message.text()); });
   await page.goto("/");
+  if (searchOpen) await page.keyboard.press("Control+f");
   await page.locator('input[type="file"][accept="application/pdf,.pdf"]')
     .first()
     .setInputFiles({
@@ -60,4 +64,6 @@ test("keeps memory bounded when opening a 500-page structural document", async (
   });
   await expect.poll(() => page.locator("[data-page-mounted]").count())
     .toBeLessThanOrEqual(20);
+  expect(updateErrors).toEqual([]);
 });
+}

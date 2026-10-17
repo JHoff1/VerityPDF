@@ -34,6 +34,17 @@ async function vectorFixture() {
 }
 
 test("raster sliders estimate a sample, save all pages separately, and retain the original", async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.addInitScript(() => {
+    const OriginalWorker = window.Worker;
+    (window as unknown as { pdfWorkerCount: number }).pdfWorkerCount = 0;
+    window.Worker = class extends OriginalWorker {
+      constructor(url: string | URL, options?: WorkerOptions) {
+        super(url, options);
+        if (String(url).includes("pdf.worker")) (window as unknown as { pdfWorkerCount: number }).pdfWorkerCount++;
+      }
+    };
+  });
   await openCompression(page, await vectorFixture());
   await expect(page.getByRole("slider", { name: "Page rendering", exact: true })).toHaveValue("0");
   await page.getByRole("button", { name: "200 DPI", exact: true }).click();
@@ -46,6 +57,18 @@ test("raster sliders estimate a sample, save all pages separately, and retain th
   await page.getByRole("button", { name: "Analyze and compress", exact: true }).click();
   await expect(page.getByRole("button", { name: "Save rasterized copy", exact: true })).toBeEnabled();
   await expect(page.getByRole("dialog")).toContainText("After (measured)");
+  await expect(page.getByRole("img", { name: "Compressed page 1", exact: true })).toBeVisible();
+  const workers = await page.evaluate(() => (window as unknown as { pdfWorkerCount: number }).pdfWorkerCount);
+  expect(workers).toBeGreaterThan(0);
+  for (let index = 0; index < 3; index++) {
+    await page.getByRole("button", { name: "Next preview page", exact: true }).click();
+    await expect(page.getByRole("img", { name: "Compressed page 2", exact: true })).toBeVisible();
+    await expect(page.getByRole("img", { name: "Original page 2", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Previous preview page", exact: true }).click();
+    await expect(page.getByRole("img", { name: "Compressed page 1", exact: true })).toBeVisible();
+    await expect(page.getByRole("img", { name: "Original page 1", exact: true })).toBeVisible();
+  }
+  expect(await page.evaluate(() => (window as unknown as { pdfWorkerCount: number }).pdfWorkerCount)).toBe(workers);
   await page.getByRole("img", { name: "Compressed page 1", exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: "test-results/raster-compression.png" });
   const pending = page.waitForEvent("download");

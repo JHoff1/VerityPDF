@@ -6,6 +6,8 @@ window-close event.
 
 ## Automated gates
 
+- [ ] Review `docs/FUTURE_RELEASES.md` for deferred work before planning scope.
+
 - [ ] `npm run test:unit`
 - [ ] `npm run build`
 - [ ] `npm run test:e2e`

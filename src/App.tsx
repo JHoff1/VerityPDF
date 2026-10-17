@@ -136,7 +136,8 @@ import {
   type UpdateCheckStatus
 } from "./lib/updateCheck";
 import { version as APP_VERSION } from "../package.json";
-import { createDiagnosticReport } from "./diagnostics";
+import { createDiagnosticReport, createIssueReport, errorGuidance } from "./diagnostics";
+import { AppDialog } from "./components/AppDialog";
 
 // Keep the pre-rebrand keys to preserve window and session state on upgrade.
 const WINDOW_BOUNDS_KEY = "sovereignpdf.window-bounds.v1";
@@ -341,6 +342,15 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResultIndex, setSearchResultIndex] = useState(0);
   const [fileName, setFileName] = useState("No document open");
+  useEffect(() => {
+    const title = fileName === "No document open" ? "VerityPDF" : `${fileName} — VerityPDF`;
+    document.title = title;
+    if (isTauri()) {
+      void getCurrentWindow().setTitle(title).catch(() => {
+        // A title update must not interrupt opening or saving a document.
+      });
+    }
+  }, [fileName]);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedPage, setSelectedPage] = useState(1);
   const [selectedPages, setSelectedPages] = useState<Set<number>>(
@@ -379,6 +389,7 @@ export default function App() {
   const [sourcePreparedPageCount, setPreparedPageCount] = useState(0);
   const preparedPageCount = editor.renderView ? pages.length : sourcePreparedPageCount;
   const [error, setError] = useState<string | null>(null);
+  const [issueDraft, setIssueDraft] = useState<string | null>(null);
   const [activeDialog, setActiveDialog] = useState<"preferences" | "about-support" | "shortcuts" | "merge" | "export-summary" | "save" | "overwrite" | "split" | "split-save" | "print" | "password" | "unsaved-close" | "recovery" | "document-info" | "reorder-pages" | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
   const [saveName, setSaveName] = useState("");
@@ -427,20 +438,13 @@ export default function App() {
     }
   };
 
-  const reportIssue = () =>
-    openExternalProjectPage(
-      GITHUB_ISSUES_URL,
-      "The GitHub issue page could not be opened."
-    );
-
-  const exportDiagnostics = async () => {
-    const report = createDiagnosticReport({
+  const diagnosticSnapshot = () => ({
       version: APP_VERSION,
       platform: window.navigator.platform,
       desktop: isTauri(),
       pageCount: pdfDocument?.numPages ?? 0,
       annotationCount: editor.annotations.length,
-      dirty: editor.isDirty,
+      dirty: editor.isDirty || hasFormDrafts,
       theme: preferences.theme,
       viewMode,
       flattenAnnotations: preferences.flattenAnnotations,
@@ -448,6 +452,13 @@ export default function App() {
       restoreSession: preferences.restoreSession,
       lastError: error
     });
+  const reportIssue = () => {
+    setIssueDraft(createIssueReport(diagnosticSnapshot()));
+    setError(null);
+  };
+
+  const exportDiagnostics = async () => {
+    const report = createDiagnosticReport(diagnosticSnapshot());
     try {
       if (isTauri()) {
         const destination = await save({
@@ -498,11 +509,7 @@ export default function App() {
 
   const copyErrorDetails = async () => {
     if (!error) return;
-    const details = [
-      "VerityPDF error report",
-      `Platform: ${navigator.platform || "Unknown"}`,
-      `Error: ${error}`
-    ].join("\n");
+    const details = createIssueReport(diagnosticSnapshot());
     try {
       await navigator.clipboard.writeText(details);
       setSuccessMessage("Error details copied. Review them before including them in a report.");
@@ -634,9 +641,6 @@ export default function App() {
         void invoke("mark_window_document_open", {
           windowLabel: recoveryId
         });
-        void getCurrentWindow().setTitle(
-          `${snapshot.fileName} — VerityPDF`
-        );
         refreshRecoverySnapshots();
         return;
       }
@@ -834,7 +838,7 @@ export default function App() {
   useEffect(() => {
     if (ocrWorker.current) {
       ocrCancelRequested.current = true;
-      void ocrWorker.current.terminate();
+      void ocrWorker.current.terminate().catch(() => undefined);
     }
     setPageText([]);
     setPageSearchSpans([]);
@@ -1100,7 +1104,6 @@ export default function App() {
     if (isTauri()) {
       const windowLabel = getCurrentWebview().label;
       void invoke("mark_window_document_open", { windowLabel });
-      void getCurrentWindow().setTitle(`${name} — VerityPDF`);
     }
     if (path) {
       const normalizedPath = normalizeLocalPath(path);
@@ -1363,9 +1366,12 @@ export default function App() {
     };
   }, [pdfDocument]);
 
+  // Loading another batch does not change the page being fitted. Depending on
+  // the whole array reruns this state-setting effect on every loading frame.
+  const fittedPage = pages[currentPage - 1];
   useEffect(() => {
     const workspace = workspaceRef.current;
-    const page = pages[currentPage - 1];
+    const page = fittedPage;
     if (!workspace || !page || viewMode === "custom" || pendingPageView.current) return;
 
     const updateFittedZoom = () => {
@@ -1388,7 +1394,7 @@ export default function App() {
     const observer = new ResizeObserver(updateFittedZoom);
     observer.observe(workspace);
     return () => observer.disconnect();
-  }, [currentPage, pages, viewMode]);
+  }, [currentPage, fittedPage, viewMode]);
 
   useLayoutEffect(() => {
     const pending = pendingPageView.current;
@@ -1538,10 +1544,11 @@ export default function App() {
   }, [searchResults, scrollDocumentTo]);
 
   useEffect(() => {
-    setSearchResultIndex(0);
-    if (searchOpen && searchResults.length) {
-      focusSearchResult(0);
-    }
+    // Empty/inactive searches must not enqueue a passive state update for
+    // every progressive page batch. focusSearchResult resets the index when
+    // there is an actual match to display.
+    if (!searchOpen || !searchResults.length) return;
+    focusSearchResult(0);
   }, [focusSearchResult, searchOpen, searchQuery, searchResults]);
 
   const moveSearchResult = useCallback((direction: 1 | -1) => {
@@ -1585,6 +1592,9 @@ export default function App() {
             corePath: assetUrl(corePath),
             langPath: assetUrl("ocr/lang"),
             cacheMethod: "none",
+            // Tesseract rejects its job/startup promises as well; App handles
+            // those below. Avoid its default duplicate, uncaught worker throw.
+            errorHandler: () => {},
             logger: (message) => {
               if (typeof message.progress === "number") {
                 setOcrProgress((activePage + message.progress) / pageIndexes.length);
@@ -1628,27 +1638,35 @@ export default function App() {
         const canvas = window.document.createElement("canvas");
         canvas.width = Math.ceil(viewport.width);
         canvas.height = Math.ceil(viewport.height);
-        const context = canvas.getContext("2d", { alpha: false });
-        if (!context) throw new Error("Canvas rendering is unavailable for OCR.");
-        await page.render({ canvasContext: context, viewport }).promise;
-        const result = await worker.recognize(canvas, {}, { text: true, blocks: true });
-        recognized[pageIndex] = result.data.text.trim();
-        recognizedSpans[pageIndex] = (result.data.blocks ?? []).flatMap((block) =>
-          block.paragraphs.flatMap((paragraph) =>
-            paragraph.lines.flatMap((line) =>
-              line.words.map((word) => ({
-                text: word.text,
-                x: word.bbox.x0 / canvas.width,
-                y: word.bbox.y0 / canvas.height,
-                width: (word.bbox.x1 - word.bbox.x0) / canvas.width,
-                height: (word.bbox.y1 - word.bbox.y0) / canvas.height
-              }))
+        try {
+          const context = canvas.getContext("2d", { alpha: false });
+          if (!context) throw new Error("Canvas rendering is unavailable for OCR.");
+          await page.render({ canvasContext: context, viewport }).promise;
+          if (ocrCancelRequested.current || ocrWorker.current !== worker) break;
+          // Prepare the image before submitting a worker job. Tesseract's
+          // asynchronous canvas conversion otherwise races worker termination.
+          const image = canvas.toDataURL("image/png");
+          if (ocrCancelRequested.current || ocrWorker.current !== worker) break;
+          const result = await worker.recognize(image, {}, { text: true, blocks: true });
+          if (ocrCancelRequested.current || ocrWorker.current !== worker) break;
+          recognized[pageIndex] = result.data.text.trim();
+          recognizedSpans[pageIndex] = (result.data.blocks ?? []).flatMap((block) =>
+            block.paragraphs.flatMap((paragraph) =>
+              paragraph.lines.flatMap((line) =>
+                line.words.map((word) => ({
+                  text: word.text,
+                  x: word.bbox.x0 / canvas.width,
+                  y: word.bbox.y0 / canvas.height,
+                  width: (word.bbox.x1 - word.bbox.x0) / canvas.width,
+                  height: (word.bbox.y1 - word.bbox.y0) / canvas.height
+                }))
+              )
             )
-          )
-        );
-        setOcrText([...recognized]);
-        setOcrSearchSpans(recognizedSpans.map((spans) => [...spans]));
-        setOcrProgress((position + 1) / pageIndexes.length);
+          );
+          setOcrText([...recognized]);
+          setOcrSearchSpans(recognizedSpans.map((spans) => [...spans]));
+          setOcrProgress((position + 1) / pageIndexes.length);
+        } finally { canvas.width = canvas.height = 0; }
       }
       const completionMessage = ocrCancelRequested.current
         ? "OCR canceled."
@@ -1678,7 +1696,7 @@ export default function App() {
   const cancelOcr = useCallback(() => {
     ocrCancelRequested.current = true;
     setOcrStatus("Canceling OCR…");
-    void ocrWorker.current?.terminate();
+    void ocrWorker.current?.terminate().catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -3038,6 +3056,7 @@ export default function App() {
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold">Unable to complete that action</p>
             <p className="mt-1 break-words text-xs leading-5 text-red-100/80">{error}</p>
+            {errorGuidance(error, navigator.platform) && <p className="mt-2 text-xs leading-5 text-red-100">{errorGuidance(error, navigator.platform)}</p>}
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
@@ -3132,6 +3151,17 @@ export default function App() {
           </button>
         </div>
       </header>
+      {issueDraft !== null && <AppDialog title="Review issue report" description="Review or edit this report before opening GitHub. Nothing is sent until you choose Open GitHub; posting the issue is a separate step on GitHub." confirmLabel="Open GitHub" wide onCancel={() => setIssueDraft(null)} onConfirm={() => {
+        const url = `${GITHUB_ISSUES_URL}?body=${encodeURIComponent(issueDraft)}`;
+        void openExternalProjectPage(url, "The GitHub issue page could not be opened.");
+        setIssueDraft(null);
+      }}>
+        <label htmlFor="issue-report" className="text-sm">Issue report</label>
+        <textarea id="issue-report" className="mt-2 h-72 w-full rounded border border-white/15 bg-[#15171b] p-3 text-xs" value={issueDraft} onChange={(event) => setIssueDraft(event.target.value)} />
+        <button type="button" className="mt-2 rounded border border-white/15 px-3 py-2 text-sm" onClick={() => {
+          void navigator.clipboard.writeText(issueDraft).then(() => setSuccessMessage("Issue report copied. Review it before sharing."), () => setSuccessMessage("Copy unavailable. Select the report text and copy it manually."));
+        }}>Copy report</button>
+      </AppDialog>}
       {conversionOpen && <ConversionWizard currentName={documentPrepared && !passwordProtected ? fileName : undefined} getCurrentPdf={() => prepareExportBytes(true)} writePdf={writeLocalPdfAtomically} onClose={() => setConversionOpen(false)} />}
       {compressionOpen && editor.bytes && <CompressionDialog bytes={editor.bytes} prepareRasterSource={() => prepareExportBytes(true)} onSaveCopy={async (bytes) => {
         const name = `${fileName.replace(/\.pdf$/i, "")}-rasterized.pdf`;

@@ -16,6 +16,8 @@ public static class VerityInstallerUi {
   [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr hwnd);
   [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hwnd, uint message, IntPtr wparam, IntPtr lparam);
   [DllImport("user32.dll")] static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr wparam, IntPtr lparam);
+  [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr hwnd);
+  [DllImport("user32.dll")] static extern int GetDlgCtrlID(IntPtr hwnd);
   public static IntPtr[] Windows(IntPtr parent) {
     var result = new List<IntPtr>();
     Callback callback = (hwnd, param) => { result.Add(hwnd); return true; };
@@ -25,6 +27,9 @@ public static class VerityInstallerUi {
   public static int ProcessId(IntPtr hwnd) { int pid; GetWindowThreadProcessId(hwnd, out pid); return pid; }
   public static string Text(IntPtr hwnd) { var text = new StringBuilder(4096); GetWindowText(hwnd, text, text.Capacity); return text.ToString(); }
   public static void Click(IntPtr hwnd) { PostMessage(hwnd, 0xF5, IntPtr.Zero, IntPtr.Zero); }
+  // BM_CLICK can fail when a hidden wizard is not active. Send the button's
+  // BN_CLICKED notification to its owning dialog for wizard navigation only.
+  public static void Advance(IntPtr hwnd) { PostMessage(GetParent(hwnd), 0x111, new IntPtr(GetDlgCtrlID(hwnd)), hwnd); }
 }
 '@
 $process = Start-Process -FilePath (Resolve-Path -LiteralPath $Installer).Path -WindowStyle Hidden -PassThru
@@ -34,6 +39,7 @@ $selectedUninstall = $false
 $sawUninstaller = $false
 $log = [System.Collections.Generic.List[string]]::new()
 $deadline = [DateTime]::UtcNow.AddMinutes(3)
+$nextActionAt = [DateTime]::UtcNow.AddSeconds(1)
 try {
     while (-not $process.HasExited -and [DateTime]::UtcNow -lt $deadline) {
         # Only interact with this installer's process tree, never arbitrary windows.
@@ -56,11 +62,16 @@ try {
             })
             $names = @($controls | ForEach-Object Name)
             $log.Add("${windowProcess}: $($names -join ' | ')")
+            # Newer NSIS versions enable navigation before the next page's
+            # labels/radio controls are populated. Do not click through that
+            # transition and silently accept the default maintenance choice.
+            if ([DateTime]::UtcNow -lt $nextActionAt) { continue }
             if (($names -join ' ') -match 'Unable to uninstall|could not verify its uninstaller|Error opening file for writing') { throw 'Installer displayed an upgrade error.' }
             $radio = $controls | Where-Object { ($_.Name -replace '&', '') -match '^Uninstall before installing' -and $_.Enabled } | Select-Object -First 1
             if ($radio -and -not $selectedUninstall) {
                 [VerityInstallerUi]::Click($radio.Handle)
                 $selectedUninstall = $true
+                $nextActionAt = [DateTime]::UtcNow.AddSeconds(1)
                 continue
             }
             foreach ($control in $controls) {
@@ -71,7 +82,11 @@ try {
             $button = $controls | Where-Object {
                 $_.Enabled -and ($_.Name -replace '&', '') -match '^(Next\s*>?|Install|Uninstall|Finish|Close)$'
             } | Select-Object -First 1
-            if ($button) { [VerityInstallerUi]::Click($button.Handle) }
+            if ($button) {
+                $log.Add("Advancing enabled wizard button: $($button.Name)")
+                [VerityInstallerUi]::Advance($button.Handle)
+                $nextActionAt = [DateTime]::UtcNow.AddSeconds(1)
+            }
         }
         Start-Sleep -Milliseconds 400
         $process.Refresh()

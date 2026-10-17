@@ -103,6 +103,10 @@ test("page navigation and editing never scroll the top toolbar out of view", asy
   const checkHeader = async () => {
     await expect.poll(() => page.locator("header").evaluate((element) => element.getBoundingClientRect().top)).toBe(0);
     await expect(page.getByRole("button", { name: "Open PDF", exact: true })).toBeInViewport();
+    await expect(page.getByRole("button", { name: "Save PDF As", exact: true })).toBeInViewport();
+    const footer = await page.getByRole("contentinfo").boundingBox();
+    expect(footer).not.toBeNull();
+    expect(footer!.y + footer!.height).toBeCloseTo(720, 0);
     expect(await page.evaluate(() => [document.documentElement.scrollTop, document.body.scrollTop, document.getElementById("root")!.scrollTop])).toEqual([0, 0, 0]);
   };
   await checkHeader();
@@ -117,6 +121,27 @@ test("page navigation and editing never scroll the top toolbar out of view", asy
   await expect(page.getByRole("checkbox", { name: "Select page 4", exact: true })).toBeEnabled();
   await checkHeader();
   await page.locator(".editor-toolbar").getByRole("button", { name: "Undo", exact: true }).click();
+  await checkHeader();
+  // Focus and scrollIntoView used to scroll hidden-overflow outer containers,
+  // clipping the file toolbar and lifting the footer above the window bottom.
+  await page.locator('#page-3').evaluate((element) => {
+    element.setAttribute("tabindex", "-1");
+    (element as HTMLElement).focus();
+    element.scrollIntoView({ block: "end" });
+    for (const ancestor of [document.documentElement, document.body,
+      document.getElementById("root")!, document.querySelector(".app-shell")!]) {
+      ancestor.scrollTop = 200;
+    }
+  });
+  await checkHeader();
+  await page.getByRole("button", { name: "Save PDF As", exact: true }).click();
+  await page.getByRole("button", { name: "Continue to Save As", exact: true }).click();
+  const saveDialog = page.getByRole("dialog", { name: "Save PDF As", exact: true });
+  await saveDialog.getByLabel("File name").fill("renamed11.pdf");
+  const saved = page.waitForEvent("download");
+  await saveDialog.getByRole("button", { name: "Continue", exact: true }).click();
+  expect((await saved).suggestedFilename()).toBe("renamed11.pdf");
+  await expect(page).toHaveTitle("renamed11.pdf — VerityPDF");
   await checkHeader();
 });
 
@@ -172,7 +197,18 @@ test("conversion wizard exports PNG and ZIP with selected pages", async ({ page 
   await page.emulateMedia({ colorScheme: "dark" });
   await expect(page.locator(".app-shell")).toHaveAttribute("data-theme", "dark");
   await expect(page.getByLabel("Resolution", { exact: true })).toHaveCSS("background-color", "rgb(21, 23, 27)");
-  await expect(page.getByLabel("Resolution", { exact: true })).toHaveCSS("color", "oklch(0.967 0.001 286.375)");
+  // Production CSS may serialize the same color as Lab instead of OKLCH.
+  const foreground = await page.getByLabel("Resolution", { exact: true }).evaluate((element) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext("2d")!;
+    context.fillStyle = getComputedStyle(element).color;
+    context.fillRect(0, 0, 1, 1);
+    return [...context.getImageData(0, 0, 1, 1).data];
+  });
+  for (const channel of foreground.slice(0, 3)) expect(channel).toBeGreaterThan(230);
+  expect(Math.max(...foreground.slice(0, 3)) - Math.min(...foreground.slice(0, 3))).toBeLessThan(8);
+  expect(foreground[3]).toBe(255);
   await page.screenshot({ path: "test-results/conversion-wizard-dark.png" });
   await page.getByLabel("Pages (blank means all)").fill("2");
   await page.getByLabel("Resolution", { exact: true }).selectOption("72");
@@ -191,6 +227,29 @@ test("conversion wizard exports PNG and ZIP with selected pages", async ({ page 
   expect(output.includes(Buffer.from("page-0003.png"))).toBe(true);
   expect(output.includes(Buffer.from("page-0002.png"))).toBe(false);
   expect(output.readUInt16LE(output.length - 12)).toBe(2);
+  // Inspect each stored ZIP entry and actually decode its PNG, rather than
+  // accepting an archive that merely contains the expected filenames.
+  const decodedNames: string[] = [];
+  let offset = 0;
+  while (output.readUInt32LE(offset) === 0x04034b50) {
+    expect(output.readUInt16LE(offset + 8)).toBe(0); // stored, not deflated
+    const length = output.readUInt32LE(offset + 18);
+    const nameLength = output.readUInt16LE(offset + 26);
+    const extraLength = output.readUInt16LE(offset + 28);
+    const name = output.subarray(offset + 30, offset + 30 + nameLength).toString("utf8");
+    const start = offset + 30 + nameLength + extraLength;
+    const encoded = output.subarray(start, start + length).toString("base64");
+    const dimensions = await page.evaluate(async (base64) => {
+      const image = new Image();
+      image.src = `data:image/png;base64,${base64}`;
+      await image.decode();
+      return [image.naturalWidth, image.naturalHeight];
+    }, encoded);
+    expect(dimensions).toEqual([240, 300]);
+    decodedNames.push(name);
+    offset = start + length;
+  }
+  expect(decodedNames).toEqual(["page-0001.png", "page-0003.png"]);
   await page.getByLabel("Pages (blank means all)").fill("999");
   await page.getByRole("button", { name: "Convert and save" }).click();
   await expect(page.getByRole("alert")).toContainText("between 1 and 4");
