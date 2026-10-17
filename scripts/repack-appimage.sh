@@ -13,8 +13,6 @@ if [[ ! -f "$appimage_path" ]]; then
   exit 1
 fi
 
-runtime_url="https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64"
-runtime_sha256="1cc49bcf1e2ccd593c379adb17c9f85a36d619088296504de95b1d06215aebbf"
 work_dir="$(mktemp -d)"
 
 cleanup() {
@@ -53,10 +51,15 @@ if [[ -z "$wrapped_target" || ! -f "$wrapped_target" ]]; then
 fi
 chmod 0755 "$wrapped_target"
 
-curl --fail --location --retry 3 --silent --show-error \
-  "$runtime_url" \
-  --output "$runtime_path"
-echo "$runtime_sha256  $runtime_path" | sha256sum --check --status
+# Keep the exact runtime produced by the bundler. The upstream continuous
+# download is mutable and can no longer be paired with a fixed checksum.
+runtime_size="$("$input_appimage" --appimage-offset)"
+input_size="$(stat -c %s "$input_appimage")"
+if [[ ! "$runtime_size" =~ ^[0-9]+$ ]] || (( runtime_size <= 0 || runtime_size >= input_size )); then
+  echo "The AppImage did not report a valid embedded payload offset." >&2
+  exit 1
+fi
+head -c "$runtime_size" "$input_appimage" > "$runtime_path"
 chmod 0755 "$runtime_path"
 
 mksquashfs "$app_dir" "$squashfs_path" \

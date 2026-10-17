@@ -69,13 +69,12 @@ publicly available on GitHub.
 PDF editor, PDF reader, annotate PDF, merge PDF, split PDF, offline OCR,
 redact PDF
 
-## What's new in version 0.1.28
+## What's new in version 0.1.30
 
-- New Organize Pages workspace with larger visual page previews, multi-page
-  selection, direct drag-and-drop reordering, and precise move controls.
-- New annotation Layers navigation tab and improved image crop controls.
-- Clearer Page Edit selection status and a more reliable, space-efficient
-  navigation pane across narrow and wide windows.
+- Faster navigation between before-and-after compression previews.
+- Improved conversion cancellation and checks for oversized files and PNG images.
+- Improved background OCR cleanup when changing documents.
+- Updated application dependencies and security fixes in build and test tooling.
 
 ## Store logo mapping
 
