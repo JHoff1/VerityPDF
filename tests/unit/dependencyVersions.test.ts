@@ -1,6 +1,17 @@
 import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
 
+it("declares Node types explicitly for the supported build runtime", () => {
+  const manifest = JSON.parse(readFileSync("package.json", "utf8"));
+  const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
+  const tooling = JSON.parse(readFileSync("tsconfig.node.json", "utf8"));
+  expect(manifest.devDependencies["@types/node"]).toBeTruthy();
+  expect(tooling.compilerOptions.types).toContain("node");
+  const runtimeMajor = manifest.engines.node.match(/>=([0-9]+)/)?.[1];
+  expect(runtimeMajor).toBeTruthy();
+  expect(lock.packages["node_modules/@types/node"].version.split(".")[0]).toBe(runtimeMajor);
+});
+
 it("keeps JavaScript and Rust Tauri packages on matching major/minor versions", () => {
   const npm = JSON.parse(readFileSync("package-lock.json", "utf8"));
   const cargo = readFileSync("src-tauri/Cargo.lock", "utf8");
