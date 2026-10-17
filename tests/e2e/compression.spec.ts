@@ -63,8 +63,10 @@ test("raster sliders estimate a sample, save all pages separately, and retain th
   for (let index = 0; index < 3; index++) {
     await page.getByRole("button", { name: "Next preview page", exact: true }).click();
     await expect(page.getByRole("img", { name: "Compressed page 2", exact: true })).toBeVisible();
+    await expect(page.getByRole("img", { name: "Original page 2", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Previous preview page", exact: true }).click();
     await expect(page.getByRole("img", { name: "Compressed page 1", exact: true })).toBeVisible();
+    await expect(page.getByRole("img", { name: "Original page 1", exact: true })).toBeVisible();
   }
   expect(await page.evaluate(() => (window as unknown as { pdfWorkerCount: number }).pdfWorkerCount)).toBe(workers);
   await page.getByRole("img", { name: "Compressed page 1", exact: true }).scrollIntoViewIfNeeded();

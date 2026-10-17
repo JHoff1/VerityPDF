@@ -36,6 +36,23 @@ async function imageOnlyPdf() {
   return Buffer.from(await pdf.save());
 }
 
+test("updates the document title after Save As renames the PDF", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('input[type="file"][accept="application/pdf,.pdf"]').first().setInputFiles({
+    name: "original.pdf", mimeType: "application/pdf", buffer: await syntheticPdf()
+  });
+  await expect(page).toHaveTitle("original.pdf — VerityPDF");
+  await page.getByRole("button", { name: "Save PDF As" }).click();
+  await page.getByRole("dialog", { name: "Review export" })
+    .getByRole("button", { name: "Continue to Save As" }).click();
+  const dialog = page.getByRole("dialog", { name: "Save PDF As", exact: true });
+  await dialog.getByLabel("File name").fill("original11.pdf");
+  const downloaded = page.waitForEvent("download");
+  await dialog.getByRole("button", { name: "Continue", exact: true }).click();
+  expect((await downloaded).suggestedFilename()).toBe("original11.pdf");
+  await expect(page).toHaveTitle("original11.pdf — VerityPDF");
+});
+
 function encryptedPdf() {
   // A deterministic one-page PDF encrypted with the password below. Keeping
   // the fixture inline avoids relying on a native PDF encryption tool in CI.

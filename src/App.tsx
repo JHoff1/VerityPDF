@@ -341,6 +341,15 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResultIndex, setSearchResultIndex] = useState(0);
   const [fileName, setFileName] = useState("No document open");
+  useEffect(() => {
+    const title = fileName === "No document open" ? "VerityPDF" : `${fileName} — VerityPDF`;
+    document.title = title;
+    if (isTauri()) {
+      void getCurrentWindow().setTitle(title).catch(() => {
+        // A title update must not interrupt opening or saving a document.
+      });
+    }
+  }, [fileName]);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedPage, setSelectedPage] = useState(1);
   const [selectedPages, setSelectedPages] = useState<Set<number>>(
@@ -634,9 +643,6 @@ export default function App() {
         void invoke("mark_window_document_open", {
           windowLabel: recoveryId
         });
-        void getCurrentWindow().setTitle(
-          `${snapshot.fileName} — VerityPDF`
-        );
         refreshRecoverySnapshots();
         return;
       }
@@ -1100,7 +1106,6 @@ export default function App() {
     if (isTauri()) {
       const windowLabel = getCurrentWebview().label;
       void invoke("mark_window_document_open", { windowLabel });
-      void getCurrentWindow().setTitle(`${name} — VerityPDF`);
     }
     if (path) {
       const normalizedPath = normalizeLocalPath(path);

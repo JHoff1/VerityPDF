@@ -68,7 +68,9 @@ export function ConversionWizard({ currentName, getCurrentPdf, writePdf, onClose
       if (cancelled.current) throw new Error("Conversion cancelled. No output was saved.");
       if (isTauri()) {
         const extension = name.split(".").pop()!;
-        const path = await save({ defaultPath: name, filters: [{ name: "Converted file", extensions: [extension] }] });
+        const fileType = extension === "zip" ? "ZIP archive (*.zip)"
+          : extension === "png" ? "PNG image (*.png)" : "PDF document (*.pdf)";
+        const path = await save({ defaultPath: name, filters: [{ name: fileType, extensions: [extension] }] });
         if (!path) { setStatus("Save cancelled. Your original files are unchanged."); return; }
         const bytes = new Uint8Array(await blob.arrayBuffer());
         if (mode === "png") await writePdf(path, bytes);
