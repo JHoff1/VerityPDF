@@ -1,9 +1,7 @@
 {
   "name": "verity-pdf",
   "private": true,
-  "engines": {
-    "node": ">=24 <25"
-  },
+  "engines": { "node": ">=24 <25" },
   "version": "0.1.30",
   "homepage": "https://www.veritypdf.com/",
   "repository": {

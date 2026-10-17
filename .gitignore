@@ -7,4 +7,5 @@ playwright-report/
 output/
 website/
 *.log
+*.tsbuildinfo
 .DS_Store
