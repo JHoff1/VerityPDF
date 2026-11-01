@@ -52,7 +52,7 @@ jobs:
         run: ./scripts/build-msix.ps1 -Architecture "${{ matrix.architecture }}"
 
       - name: Retain Store package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: veritypdf-store-${{ matrix.architecture }}
           path: |
@@ -84,7 +84,7 @@ jobs:
             -OutputPath (Join-Path $env:RUNNER_TEMP "VerityPDF.msixupload")
 
       - name: Retain validated Store upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: veritypdf-store-upload
           path: ${{ runner.temp }}/VerityPDF.msixupload

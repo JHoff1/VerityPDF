@@ -46,7 +46,7 @@ jobs:
 
       - name: Retain browser diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: veritypdf-browser-test-results
           path: test-results
@@ -262,7 +262,7 @@ jobs:
 
       - name: Retain Linux smoke-test diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: veritypdf-linux-${{ matrix.artifact-suffix }}-smoke-diagnostics
           path: smoke-artifacts
@@ -334,7 +334,7 @@ jobs:
 
       - name: Retain macOS smoke-test diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: veritypdf-macos-${{ matrix.artifact-suffix }}-smoke-diagnostics
           path: smoke-artifacts
@@ -394,7 +394,7 @@ jobs:
 
       - name: Retain ARM64 diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: veritypdf-windows-arm64-smoke-diagnostics
           path: smoke-artifacts
@@ -494,7 +494,7 @@ jobs:
 
       - name: Retain Windows installer diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: veritypdf-windows-installer-smoke-diagnostics
           path: smoke-artifacts
